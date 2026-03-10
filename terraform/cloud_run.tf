@@ -15,11 +15,11 @@ resource "google_cloud_run_v2_service" "flight_specialist" {
       }
       env {
         name  = "HOTEL_SPECIALIST_URL"
-        value = "https://hotel-specialist.${var.custom_domain}/chat"
+        value = "${local.hotel_specialist_url}/chat"
       }
       env {
         name  = "WEATHER_SPECIALIST_URL"
-        value = "https://weather-specialist.${var.custom_domain}/chat"
+        value = "${local.weather_specialist_url}/chat"
       }
     }
   }
@@ -42,7 +42,7 @@ resource "google_cloud_run_v2_service" "weather_specialist" {
       }
       env {
         name  = "INVENTORY_MCP_URL"
-        value = "https://inventory-mcp.${var.custom_domain}/sse"
+        value = "${local.inventory_mcp_url}/sse"
       }
       env {
         name  = "BOOKING_ORCHESTRATOR_URL"

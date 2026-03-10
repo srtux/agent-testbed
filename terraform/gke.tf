@@ -81,9 +81,9 @@ resource "kubernetes_deployment" "hotel_specialist" {
 resource "kubernetes_service" "hotel_specialist" {
   metadata {
     name = "gke-hotel-specialist-service"
-    annotations = {
+    annotations = local.use_custom_domain ? {
       "cloud.google.com/neg" = jsonencode({ ingress = true })
-    }
+    } : {}
   }
   spec {
     selector = {
@@ -93,7 +93,7 @@ resource "kubernetes_service" "hotel_specialist" {
       port        = 80
       target_port = 8080
     }
-    type = "ClusterIP"
+    type = local.use_custom_domain ? "ClusterIP" : "LoadBalancer"
   }
 }
 
@@ -136,7 +136,7 @@ resource "kubernetes_deployment" "car_rental_specialist" {
           }
           env {
             name  = "PROFILE_MCP_URL"
-            value = "https://profile-mcp.${var.custom_domain}/sse"
+            value = "${local.profile_mcp_url}/sse"
           }
 
           resources {
@@ -176,9 +176,9 @@ resource "kubernetes_deployment" "car_rental_specialist" {
 resource "kubernetes_service" "car_rental_specialist" {
   metadata {
     name = "gke-car-rental-service"
-    annotations = {
+    annotations = local.use_custom_domain ? {
       "cloud.google.com/neg" = jsonencode({ ingress = true })
-    }
+    } : {}
   }
   spec {
     selector = {
@@ -188,7 +188,7 @@ resource "kubernetes_service" "car_rental_specialist" {
       port        = 80
       target_port = 8080
     }
-    type = "ClusterIP"
+    type = local.use_custom_domain ? "ClusterIP" : "LoadBalancer"
   }
 }
 
@@ -267,9 +267,9 @@ resource "kubernetes_deployment" "inventory_mcp" {
 resource "kubernetes_service" "inventory_mcp" {
   metadata {
     name = "gke-inventory-mcp-service"
-    annotations = {
+    annotations = local.use_custom_domain ? {
       "cloud.google.com/neg" = jsonencode({ ingress = true })
-    }
+    } : {}
   }
   spec {
     selector = {
@@ -279,7 +279,7 @@ resource "kubernetes_service" "inventory_mcp" {
       port        = 80
       target_port = 8080
     }
-    type = "ClusterIP"
+    type = local.use_custom_domain ? "ClusterIP" : "LoadBalancer"
   }
 }
 
@@ -292,7 +292,6 @@ resource "kubernetes_service_account" "inventory_mcp_ksah" {
       "iam.gke.io/gcp-service-account" = google_service_account.inventory_mcp_gsa.email
     }
   }
-  # This makes sure Terraform understands it needs the IAM binding locally first
   depends_on = [
     google_service_account_iam_member.inventory_mcp_workload_identity
   ]

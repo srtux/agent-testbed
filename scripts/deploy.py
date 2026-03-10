@@ -185,8 +185,9 @@ def deploy_agent_engine_task(root_dir, project_id, region, custom_domain, log_pa
             "--project_id", project_id,
             "--location", region,
             "--bucket", f"{project_id}-deploy-artifacts",
-            "--custom_domain", custom_domain,
         ]
+        if custom_domain:
+            agent_deploy_command.extend(["--custom_domain", custom_domain])
         run_command(agent_deploy_command, cwd=root_dir, log_file=f)
 
     # Read the outputs JSON written by deploy_agent_engine.py
@@ -223,18 +224,15 @@ def main():
     project_id = env.get("PROJECT_ID", env.get("GOOGLE_CLOUD_PROJECT"))
     region = env.get("REGION", env.get("GOOGLE_CLOUD_LOCATION", "us-central1"))
     cluster_name = env.get("CLUSTER_NAME", "default-cluster")
-    custom_domain = env.get("CUSTOM_DOMAIN")
+    custom_domain = env.get("CUSTOM_DOMAIN", "")
 
     if not project_id:
         print("Error: PROJECT_ID or GOOGLE_CLOUD_PROJECT must be set in .env")
         sys.exit(1)
 
-    if not custom_domain:
-        print("Error: CUSTOM_DOMAIN must be set in .env (e.g., testbed.example.com)")
-        sys.exit(1)
-
+    mode = "custom_domain" if custom_domain else "direct"
     print(f"Deploying to project: {project_id} in region: {region}")
-    print(f"Custom domain: {custom_domain}")
+    print(f"Mode: {mode}" + (f" (domain: {custom_domain})" if custom_domain else " (Cloud Run native URLs + GKE LoadBalancer IPs)"))
     print(f"Logs will be written to: {logs_dir}")
 
     registry_prefix = f"gcr.io/{project_id}"
@@ -327,19 +325,32 @@ def main():
     print("Applying Terraform (with parallelism=20)...")
     run_command(["terraform", "apply", "-auto-approve", "-parallelism=20"] + tf_vars, cwd=terraform_dir)
 
-    # Read outputs for Agent Engine deployment
-    cloud_run_lb_ip = get_terraform_output(terraform_dir, "cloud_run_lb_ip")
-    gke_lb_ip = get_terraform_output(terraform_dir, "gke_lb_ip")
+    # Read and display service URLs from Terraform outputs
+    service_url_names = ["flight_specialist_url", "weather_specialist_url", "profile_mcp_url",
+                         "hotel_specialist_url", "car_rental_url", "inventory_mcp_url"]
+    service_urls = {}
+    print("\n  Service URLs:")
+    for output_name in service_url_names:
+        url = get_terraform_output(terraform_dir, output_name)
+        if url:
+            service_urls[output_name] = url
+            print(f"    {output_name}: {url}")
 
-    print(f"\n  Cloud Run LB IP: {cloud_run_lb_ip}")
-    print(f"  GKE LB IP:      {gke_lb_ip}")
-    print(f"\n  Configure DNS A records:")
-    print(f"    flight-specialist.{custom_domain} -> {cloud_run_lb_ip}")
-    print(f"    weather-specialist.{custom_domain} -> {cloud_run_lb_ip}")
-    print(f"    profile-mcp.{custom_domain}        -> {cloud_run_lb_ip}")
-    print(f"    hotel-specialist.{custom_domain}    -> {gke_lb_ip}")
-    print(f"    car-rental.{custom_domain}          -> {gke_lb_ip}")
-    print(f"    inventory-mcp.{custom_domain}       -> {gke_lb_ip}")
+    # Write service URLs for Agent Engine deploy to consume
+    urls_path = root_dir / "terraform_service_urls.json"
+    with open(urls_path, "w") as f:
+        json.dump(service_urls, f, indent=2)
+
+    if custom_domain:
+        cloud_run_lb_ip = get_terraform_output(terraform_dir, "cloud_run_lb_ip")
+        gke_lb_ip = get_terraform_output(terraform_dir, "gke_lb_ip")
+        print(f"\n  Configure DNS A records:")
+        print(f"    flight-specialist.{custom_domain} -> {cloud_run_lb_ip}")
+        print(f"    weather-specialist.{custom_domain} -> {cloud_run_lb_ip}")
+        print(f"    profile-mcp.{custom_domain}        -> {cloud_run_lb_ip}")
+        print(f"    hotel-specialist.{custom_domain}    -> {gke_lb_ip}")
+        print(f"    car-rental.{custom_domain}          -> {gke_lb_ip}")
+        print(f"    inventory-mcp.{custom_domain}       -> {gke_lb_ip}")
 
     # =========================================================================
     # Phase 3: Agent Engine (runs AFTER Terraform so URLs are known)

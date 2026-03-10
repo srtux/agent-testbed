@@ -17,12 +17,8 @@ variable "cluster_name" {
 
 variable "custom_domain" {
   type        = string
-  description = "Base custom domain for the testbed (e.g., testbed.example.com). Each service gets a subdomain."
-
-  validation {
-    condition     = length(var.custom_domain) > 0
-    error_message = "custom_domain must not be empty."
-  }
+  description = "Base custom domain (e.g., testbed.example.com). Leave empty to use Cloud Run native URLs and GKE LoadBalancer IPs."
+  default     = ""
 }
 
 variable "root_router_url" {
@@ -71,5 +67,5 @@ variable "inventory_mcp_image" {
 # Source code reference for Cloud Functions
 variable "traffic_generator_source_zip" {
   type        = string
-  description = "The GCS URL to the uploaded zip file of the traffic generator source code"
+  description = "The object name of the uploaded zip file in the deploy-artifacts bucket"
 }

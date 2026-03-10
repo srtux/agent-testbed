@@ -1,8 +1,10 @@
 # =============================================================================
 # Global HTTPS Load Balancer for Cloud Run services (Serverless NEGs)
+# Only created when custom_domain is set.
 # =============================================================================
 
 resource "google_compute_global_address" "cloud_run_lb" {
+  count   = local.use_custom_domain ? 1 : 0
   name    = "testbed-cloud-run-lb-ip"
   project = var.project_id
 }
@@ -10,6 +12,7 @@ resource "google_compute_global_address" "cloud_run_lb" {
 # --- Serverless NEGs for Cloud Run ---
 
 resource "google_compute_region_network_endpoint_group" "flight_specialist" {
+  count                 = local.use_custom_domain ? 1 : 0
   name                  = "flight-specialist-neg"
   network_endpoint_type = "SERVERLESS"
   region                = var.region
@@ -21,6 +24,7 @@ resource "google_compute_region_network_endpoint_group" "flight_specialist" {
 }
 
 resource "google_compute_region_network_endpoint_group" "weather_specialist" {
+  count                 = local.use_custom_domain ? 1 : 0
   name                  = "weather-specialist-neg"
   network_endpoint_type = "SERVERLESS"
   region                = var.region
@@ -32,6 +36,7 @@ resource "google_compute_region_network_endpoint_group" "weather_specialist" {
 }
 
 resource "google_compute_region_network_endpoint_group" "profile_mcp" {
+  count                 = local.use_custom_domain ? 1 : 0
   name                  = "profile-mcp-neg"
   network_endpoint_type = "SERVERLESS"
   region                = var.region
@@ -45,44 +50,48 @@ resource "google_compute_region_network_endpoint_group" "profile_mcp" {
 # --- Backend Services for Cloud Run ---
 
 resource "google_compute_backend_service" "flight_specialist" {
+  count   = local.use_custom_domain ? 1 : 0
   name    = "flight-specialist-backend"
   project = var.project_id
 
   load_balancing_scheme = "EXTERNAL_MANAGED"
 
   backend {
-    group = google_compute_region_network_endpoint_group.flight_specialist.id
+    group = google_compute_region_network_endpoint_group.flight_specialist[0].id
   }
 }
 
 resource "google_compute_backend_service" "weather_specialist" {
+  count   = local.use_custom_domain ? 1 : 0
   name    = "weather-specialist-backend"
   project = var.project_id
 
   load_balancing_scheme = "EXTERNAL_MANAGED"
 
   backend {
-    group = google_compute_region_network_endpoint_group.weather_specialist.id
+    group = google_compute_region_network_endpoint_group.weather_specialist[0].id
   }
 }
 
 resource "google_compute_backend_service" "profile_mcp" {
+  count   = local.use_custom_domain ? 1 : 0
   name    = "profile-mcp-backend"
   project = var.project_id
 
   load_balancing_scheme = "EXTERNAL_MANAGED"
 
   backend {
-    group = google_compute_region_network_endpoint_group.profile_mcp.id
+    group = google_compute_region_network_endpoint_group.profile_mcp[0].id
   }
 }
 
 # --- URL Map (host-based routing) ---
 
 resource "google_compute_url_map" "cloud_run_lb" {
+  count           = local.use_custom_domain ? 1 : 0
   name            = "testbed-cloud-run-url-map"
   project         = var.project_id
-  default_service = google_compute_backend_service.flight_specialist.id
+  default_service = google_compute_backend_service.flight_specialist[0].id
 
   host_rule {
     hosts        = ["flight-specialist.${var.custom_domain}"]
@@ -101,23 +110,24 @@ resource "google_compute_url_map" "cloud_run_lb" {
 
   path_matcher {
     name            = "flight-specialist"
-    default_service = google_compute_backend_service.flight_specialist.id
+    default_service = google_compute_backend_service.flight_specialist[0].id
   }
 
   path_matcher {
     name            = "weather-specialist"
-    default_service = google_compute_backend_service.weather_specialist.id
+    default_service = google_compute_backend_service.weather_specialist[0].id
   }
 
   path_matcher {
     name            = "profile-mcp"
-    default_service = google_compute_backend_service.profile_mcp.id
+    default_service = google_compute_backend_service.profile_mcp[0].id
   }
 }
 
 # --- SSL Certificate (Google-managed) ---
 
 resource "google_compute_managed_ssl_certificate" "cloud_run_lb" {
+  count   = local.use_custom_domain ? 1 : 0
   name    = "testbed-cloud-run-cert"
   project = var.project_id
 
@@ -133,34 +143,39 @@ resource "google_compute_managed_ssl_certificate" "cloud_run_lb" {
 # --- HTTPS Proxy and Forwarding Rule ---
 
 resource "google_compute_target_https_proxy" "cloud_run_lb" {
+  count   = local.use_custom_domain ? 1 : 0
   name    = "testbed-cloud-run-https-proxy"
   project = var.project_id
 
-  url_map          = google_compute_url_map.cloud_run_lb.id
-  ssl_certificates = [google_compute_managed_ssl_certificate.cloud_run_lb.id]
+  url_map          = google_compute_url_map.cloud_run_lb[0].id
+  ssl_certificates = [google_compute_managed_ssl_certificate.cloud_run_lb[0].id]
 }
 
 resource "google_compute_global_forwarding_rule" "cloud_run_lb" {
+  count   = local.use_custom_domain ? 1 : 0
   name    = "testbed-cloud-run-forwarding-rule"
   project = var.project_id
 
-  target     = google_compute_target_https_proxy.cloud_run_lb.id
+  target     = google_compute_target_https_proxy.cloud_run_lb[0].id
   port_range = "443"
-  ip_address = google_compute_global_address.cloud_run_lb.address
+  ip_address = google_compute_global_address.cloud_run_lb[0].address
 
   load_balancing_scheme = "EXTERNAL_MANAGED"
 }
 
 # =============================================================================
-# GKE Ingress with container-native NEGs
+# GKE Ingress with container-native NEGs (only with custom domain)
+# Without custom domain, GKE services use LoadBalancer type directly.
 # =============================================================================
 
 resource "google_compute_global_address" "gke_lb" {
+  count   = local.use_custom_domain ? 1 : 0
   name    = "testbed-gke-lb-ip"
   project = var.project_id
 }
 
 resource "google_compute_managed_ssl_certificate" "gke_lb" {
+  count   = local.use_custom_domain ? 1 : 0
   name    = "testbed-gke-cert"
   project = var.project_id
 
@@ -173,15 +188,16 @@ resource "google_compute_managed_ssl_certificate" "gke_lb" {
   }
 }
 
-# GKE Ingress - the GKE ingress controller creates NEG-backed backend services automatically
 resource "kubernetes_ingress_v1" "testbed_gke" {
+  count = local.use_custom_domain ? 1 : 0
+
   metadata {
     name      = "testbed-gke-ingress"
     namespace = "default"
     annotations = {
-      "kubernetes.io/ingress.class"                = "gce"
-      "kubernetes.io/ingress.global-static-ip-name" = google_compute_global_address.gke_lb.name
-      "networking.gke.io/pre-shared-cert"          = google_compute_managed_ssl_certificate.gke_lb.name
+      "kubernetes.io/ingress.class"                  = "gce"
+      "kubernetes.io/ingress.global-static-ip-name"  = google_compute_global_address.gke_lb[0].name
+      "networking.gke.io/pre-shared-cert"            = google_compute_managed_ssl_certificate.gke_lb[0].name
     }
   }
 

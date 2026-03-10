@@ -31,7 +31,7 @@ flags.DEFINE_bool("delete", False, "Deletes an existing agent.")
 flags.mark_bool_flags_as_mutual_exclusive(["create", "delete", "list"])
 
 
-def create_agent(agent_obj, custom_domain) -> None:
+def create_agent(agent_obj, custom_domain, service_urls=None) -> None:
     """Creates an agent engine for the given agent."""
     adk_app = AdkApp(agent=agent_obj)
 
@@ -67,7 +67,29 @@ def create_agent(agent_obj, custom_domain) -> None:
     shutil.copytree(os.path.join(project_root, "agents"), os.path.join(staging_dir, "agents"), dirs_exist_ok=True)
     shutil.copytree(os.path.join(project_root, "testbed_utils"), os.path.join(staging_dir, "testbed_utils"), dirs_exist_ok=True)
 
-    # Build service URLs from the custom domain (stable, not guessed)
+    # Build service URLs - from custom domain or terraform outputs
+    if custom_domain:
+        urls = {
+            "FLIGHT_SPECIALIST_URL": f"https://flight-specialist.{custom_domain}/chat",
+            "WEATHER_SPECIALIST_URL": f"https://weather-specialist.{custom_domain}/chat",
+            "PROFILE_MCP_URL": f"https://profile-mcp.{custom_domain}/sse",
+            "INVENTORY_MCP_URL": f"https://inventory-mcp.{custom_domain}/sse",
+            "HOTEL_SPECIALIST_URL": f"https://hotel-specialist.{custom_domain}/chat",
+            "CAR_RENTAL_SPECIALIST_URL": f"https://car-rental.{custom_domain}/chat",
+        }
+    elif service_urls:
+        urls = {
+            "FLIGHT_SPECIALIST_URL": f"{service_urls.get('flight_specialist_url', '')}/chat",
+            "WEATHER_SPECIALIST_URL": f"{service_urls.get('weather_specialist_url', '')}/chat",
+            "PROFILE_MCP_URL": f"{service_urls.get('profile_mcp_url', '')}/sse",
+            "INVENTORY_MCP_URL": f"{service_urls.get('inventory_mcp_url', '')}/sse",
+            "HOTEL_SPECIALIST_URL": f"{service_urls.get('hotel_specialist_url', '')}/chat",
+            "CAR_RENTAL_SPECIALIST_URL": f"{service_urls.get('car_rental_url', '')}/chat",
+        }
+    else:
+        urls = {}
+        print(f"  Warning: No custom_domain or service_urls provided for {agent_obj.name}")
+
     env_vars = {
         "GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY": "true",
         "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT": "true",
@@ -77,13 +99,7 @@ def create_agent(agent_obj, custom_domain) -> None:
         "LOG_LEVEL": "INFO",
         "RUNNING_IN_AGENT_ENGINE": "true",
         "PYTHONPATH": ".",
-        # Service URLs via stable custom domain — reachable from Agent Engine
-        "FLIGHT_SPECIALIST_URL": f"https://flight-specialist.{custom_domain}/chat",
-        "WEATHER_SPECIALIST_URL": f"https://weather-specialist.{custom_domain}/chat",
-        "PROFILE_MCP_URL": f"https://profile-mcp.{custom_domain}/sse",
-        "INVENTORY_MCP_URL": f"https://inventory-mcp.{custom_domain}/sse",
-        "HOTEL_SPECIALIST_URL": f"https://hotel-specialist.{custom_domain}/chat",
-        "CAR_RENTAL_SPECIALIST_URL": f"https://car-rental.{custom_domain}/chat",
+        **urls,
     }
 
     print(f"Deploying {agent_obj.name}...")
@@ -108,14 +124,14 @@ def create_agent(agent_obj, custom_domain) -> None:
 import concurrent.futures
 import json
 
-def create(custom_domain) -> dict:
+def create(custom_domain, service_urls=None) -> dict:
     """Deploy all configured ADK agents in parallel. Returns dict of agent_name -> resource_name."""
     agents = [root_router_agent, booking_agent]
     results = {}
 
     print(f"Deploying {len(agents)} agents in parallel...")
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(agents)) as executor:
-        futures = {executor.submit(create_agent, agent, custom_domain): agent for agent in agents}
+        futures = {executor.submit(create_agent, agent, custom_domain, service_urls): agent for agent in agents}
         for future in concurrent.futures.as_completed(futures):
             agent = futures[future]
             try:
@@ -194,9 +210,17 @@ def _main(argv: list[str] | None = None) -> None:
     elif not bucket:
         print("Missing required: GOOGLE_CLOUD_STORAGE_BUCKET or --bucket")
         sys.exit(1)
-    elif not custom_domain:
-        print("Missing required: CUSTOM_DOMAIN or --custom_domain")
-        sys.exit(1)
+
+    if not custom_domain:
+        print("No custom domain set. Will read service URLs from terraform outputs or env vars.")
+
+    # Read service_urls from JSON file if it exists (written by deploy.py)
+    service_urls_path = os.path.join(project_root, "terraform_service_urls.json")
+    service_urls = None
+    if os.path.exists(service_urls_path):
+        with open(service_urls_path) as f:
+            service_urls = json.load(f)
+        print(f"Loaded service URLs from {service_urls_path}")
 
     vertexai.init(
         project=project_id,
@@ -207,16 +231,15 @@ def _main(argv: list[str] | None = None) -> None:
     if FLAGS.list:
         list_agents()
     elif FLAGS.create:
-        create(custom_domain)
+        create(custom_domain, service_urls)
     elif FLAGS.delete:
         if not FLAGS.resource_id:
             print("resource_id is required for delete")
             sys.exit(1)
         delete(FLAGS.resource_id)
     else:
-        # Default behavior
         print("No command flag provided. Defaulting to --create.")
-        create(custom_domain)
+        create(custom_domain, service_urls)
 
 def main():
     app.run(_main)
