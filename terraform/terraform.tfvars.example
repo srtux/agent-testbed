@@ -1,0 +1,14 @@
+project_id        = "your-gcp-project-id"
+region            = "us-central1"
+cluster_name      = "default-cluster"
+
+# Image References (Built and pushed to GCR/Artifact Registry)
+flight_specialist_image      = "gcr.io/your-gcp-project-id/flight-specialist:latest"
+weather_specialist_image     = "gcr.io/your-gcp-project-id/weather-specialist:latest"
+profile_mcp_image           = "gcr.io/your-gcp-project-id/profile-mcp:latest"
+hotel_specialist_image      = "gcr.io/your-gcp-project-id/hotel-specialist:latest"
+car_rental_specialist_image = "gcr.io/your-gcp-project-id/car-rental-specialist:latest"
+inventory_mcp_image         = "gcr.io/your-gcp-project-id/inventory-mcp:latest"
+
+# Source code reference for Cloud Functions
+traffic_generator_source_zip = "gs://your-gcp-project-id-deploy-artifacts/traffic_generator_source.zip"

@@ -1,0 +1,13 @@
+[project]
+name = "carrentalspecialist"
+version = "0.1.0"
+description = "CarRentalSpecialist service"
+dependencies = [
+    "agent_testbed",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+agent_testbed = { workspace = true }

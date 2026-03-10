@@ -1,0 +1,13 @@
+[project]
+name = "rootrouter"
+version = "0.1.0"
+description = "RootRouter service"
+dependencies = [
+    "agent_testbed",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+agent_testbed = { workspace = true }

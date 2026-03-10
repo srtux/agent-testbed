@@ -1,0 +1,13 @@
+[project]
+name = "traffic-generator"
+version = "0.1.0"
+description = "traffic-generator service"
+dependencies = [
+    "agent_testbed",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+agent_testbed = { workspace = true }
