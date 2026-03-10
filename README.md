@@ -10,14 +10,18 @@ The application is structured into orchestration agents, specialist sub-agents, 
 - **FlightSpecialist**: A specialized agent deployed on Cloud Run, built with FastAPI, that coordinates flight queries.
 - **Profile_MCP**: An MCP Server deployed on Cloud Run exposing user travel preferences via HTTP/SSE.
 - **Inventory_MCP**: An MCP Server deployed on GKE providing mock hotel and car rental data.
-+
-+### Shared Utilities
-+
-+To maintain DRY (Don't Repeat Yourself) principles and architectural consistency, core cross-cutting concerns are managed via `testbed_utils/`:
-+
-+- **telemetry.py**: Centralized OpenTelemetry initialization, forced GenAI semantic conventions, and multi-client instrumentation.
-+- **logging.py**: Uniform JSON structured logging for Google Cloud Trace correlation.
-+- **config.py**: Global environment presets and model version mappings to ensure parity across the hybrid topology.
+- **BookingOrchestrator**: A transactional agent deployed on Agent Engine that finalizes and commits itineraries.
+- **HotelSpecialist**: A specialist agent deployed on GKE that queries hotel inventory and coordinates car rentals.
+- **CarRentalSpecialist**: A specialist agent deployed on GKE that checks user loyalty status and proposes rental cars.
+- **WeatherSpecialist**: A specialist agent deployed on Cloud Run that checks weather conditions and delegates to the BookingOrchestrator.
+
+### Shared Utilities
+
+To maintain DRY (Don't Repeat Yourself) principles and architectural consistency, core cross-cutting concerns are managed via `testbed_utils/`:
+
+- **telemetry.py**: Centralized OpenTelemetry initialization, forced GenAI semantic conventions, and multi-client instrumentation.
+- **logging.py**: Uniform JSON structured logging for Google Cloud Trace correlation.
+- **config.py**: Global environment presets and model version mappings to ensure parity across the hybrid topology.
 
 ### Hybrid Runtime Distribution
 
@@ -45,19 +49,19 @@ graph TD
     end
     style AgentEngineEnv fill:transparent,stroke:#ce93d8,stroke-width:2px,stroke-dasharray: 5 5
 
-    subgraph ENV["Cloud Run"]
+    subgraph CloudRunEnv["Cloud Run"]
         FlightSpecialist[FlightSpecialist]:::agent
         WeatherSpecialist[WeatherSpecialist]:::agent
         ProfileMCP[Profile_MCP Server]:::mcp
     end
-    style ENV fill:transparent,stroke:#9fa8da,stroke-width:2px,stroke-dasharray: 5 5
+    style CloudRunEnv fill:transparent,stroke:#9fa8da,stroke-width:2px,stroke-dasharray: 5 5
 
-    subgraph ENV["Google Kubernetes Engine (GKE)"]
+    subgraph GKEEnv["Google Kubernetes Engine (GKE)"]
         Hotel[HotelSpecialist]:::agent
         Car[CarRentalSpecialist]:::agent
         InvMCP[Inventory_MCP Server]:::mcp
     end
-    style ENV fill:transparent,stroke:#a5d6a7,stroke-width:2px,stroke-dasharray: 5 5
+    style GKEEnv fill:transparent,stroke:#a5d6a7,stroke-width:2px,stroke-dasharray: 5 5
 
     %% Dependencies / Call Hierarchy
     User[/User Request/]:::user --> RootRouter
@@ -127,9 +131,35 @@ A core focus of this testbed is robust distributed tracing using OpenTelemetry. 
 - **ADK Agents**: Use `GoogleGenAiSdkInstrumentor` for prompt/response visibility. Outbound HTTP calls (e.g., to sub-agents) inject trace headers via `HTTPXClientInstrumentor`.
 - **FastAPI / MCP Services**: Use `FastAPIInstrumentor` to extract incoming trace headers and bind them to the local execution context. Custom spans (e.g., `mcp.tool_call.*`) provide high-fidelity insights into MCP interactions.
 
+### Traffic Generator
+
+A Cloud Function (`traffic_generator/`) that acts as the root span originator. It is triggered by Cloud Scheduler and sends randomized travel prompts to the RootRouter, exercising the full distributed trace waterfall across all environments.
+
+## Project Structure
+
+```
+agent-testbed/
+├── agents/
+│   ├── RootRouter/           # Primary orchestration agent (Agent Engine, port 8080)
+│   ├── BookingOrchestrator/  # Transaction finalizer (Agent Engine, port 8081)
+│   ├── FlightSpecialist/     # Flight coordination (Cloud Run, port 8082)
+│   ├── WeatherSpecialist/    # Weather + booking delegation (Cloud Run, port 8083)
+│   ├── HotelSpecialist/      # Hotel inventory + car rental (GKE, port 8084)
+│   └── CarRentalSpecialist/  # Car rental + loyalty check (GKE, port 8085)
+├── mcp_servers/
+│   ├── Profile_MCP/          # User preferences MCP server (Cloud Run, port 8090)
+│   └── Inventory_MCP/        # Hotel/car/weather data MCP server (GKE, port 8091)
+├── traffic_generator/        # Cloud Function for trace generation
+├── testbed_utils/            # Shared telemetry, logging, and config
+├── scripts/                  # Deployment, test, and orchestration scripts
+├── terraform/                # Infrastructure-as-Code definitions
+└── tests/                    # Unit and integration tests
+```
+
 ## Prerequisites
 
 - [uv](https://github.com/astral-sh/uv) (for local dependency management)
+- Python 3.12+
 - Google Cloud SDK (`gcloud`)
 - Kubectl (`kubectl`)
 - A Google Cloud Project with Billing and the necessary APIs enabled (Vertex AI, Cloud Run, GKE, Cloud Trace).
@@ -157,10 +187,23 @@ This project uses `uv` as the primary build and dependency management tool.
    ```
 
 4. **Run Services Locally**:
-   To test the entire architecture natively on your machine, you can launch all Agents and FastMCP servers concurrently. Ensure `python-dotenv` is installed if you want `.env` variables loaded automatically, or export them in your shell beforehand.
+   Launch all agents and MCP servers concurrently with a single command:
    ```bash
    uv run run-all
    ```
+
+   This starts all services on their designated ports:
+
+   | Service | Port |
+   | :--- | :--- |
+   | RootRouter | 8080 |
+   | BookingOrchestrator | 8081 |
+   | FlightSpecialist | 8082 |
+   | WeatherSpecialist | 8083 |
+   | HotelSpecialist | 8084 |
+   | CarRentalSpecialist | 8085 |
+   | Profile_MCP | 8090 |
+   | Inventory_MCP | 8091 |
 
    Alternatively, run individual components manually:
    ```bash

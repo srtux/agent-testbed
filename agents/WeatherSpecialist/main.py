@@ -6,13 +6,9 @@ from testbed_utils.config import DEFAULT_PRO_MODEL
 
 setup_telemetry()
 logger = setup_logging()
+
 import os
-import sys
-import logging
 import json
-
-
-
 
 import httpx
 from fastapi import FastAPI
@@ -66,7 +62,7 @@ async def delegate_to_booking_orchestrator(user_id: str, itinerary_details: str)
     """Sends finalized travel plans to the BookingOrchestrator Booking Orchestrator."""
     logger.info(f"Delegating final confirmation to Booking Orchestrator for {user_id}")
     # Simulates edge WeatherSpecialist -> BookingOrchestrator
-    booking_orch_url = os.environ.get("BOOKING_ORCHESTRATOR_URL", "http://localhost:8080/chat")
+    booking_orch_url = os.environ.get("BOOKING_ORCHESTRATOR_URL", "http://localhost:8081/chat")
     
     async with httpx.AsyncClient() as client:
         payload = {"user_id": user_id, "itinerary_details": itinerary_details}
@@ -111,4 +107,4 @@ async def chat_endpoint(request: WeatherRequest):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8080)
+    uvicorn.run(app, host="0.0.0.0", port=8083)

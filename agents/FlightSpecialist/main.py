@@ -1,10 +1,5 @@
 # main.py MUST come before other imports for OTel patching
 # ruff: noqa: E402
-import os
-import sys
-import logging
-import json
-
 from testbed_utils.telemetry import setup_telemetry
 from testbed_utils.logging import setup_logging
 from testbed_utils.config import DEFAULT_FLASH_MODEL
@@ -12,7 +7,10 @@ from testbed_utils.config import DEFAULT_FLASH_MODEL
 setup_telemetry()
 logger = setup_logging()
 
-from fastapi import FastAPI, Request
+import os
+import json
+
+from fastapi import FastAPI
 from pydantic import BaseModel
 from google.genai import types
 from google.adk.agents import LlmAgent
@@ -98,4 +96,4 @@ async def chat_endpoint(request: ChatRequest):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8080)
+    uvicorn.run(app, host="0.0.0.0", port=8082)
