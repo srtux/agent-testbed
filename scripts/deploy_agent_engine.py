@@ -66,9 +66,26 @@ def create_agent(agent_obj) -> None:
     shutil.copytree(os.path.join(project_root, "agents"), os.path.join(staging_dir, "agents"), dirs_exist_ok=True)
     shutil.copytree(os.path.join(project_root, "testbed_utils"), os.path.join(staging_dir, "testbed_utils"), dirs_exist_ok=True)
     
-    # Optionally, we can inject env vars (e.g. downstream agent URLs) if needed downstream
-    # For now, it relies on standard env vars at runtime.
+    # Environment variables for the Reasoning Engine
+    project_id = os.environ.get("PROJECT_ID", os.environ.get("GOOGLE_CLOUD_PROJECT"))
     
+    env_vars = {
+        "GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY": "true",
+        "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT": "true",
+        "OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED": "true",
+        "ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS": "false",
+        "LOG_FORMAT": "JSON",
+        "LOG_LEVEL": "INFO",
+        "RUNNING_IN_AGENT_ENGINE": "true",
+        "PYTHONPATH": ".",
+        # Service URLs
+        "FLIGHT_SPECIALIST_URL": f"https://flight-specialist-{project_id}.a.run.app/chat",
+        "WEATHER_SPECIALIST_URL": f"https://weather-specialist-{project_id}.a.run.app/chat",
+        "PROFILE_MCP_URL": f"https://profile-mcp-{project_id}.a.run.app/sse",
+        "INVENTORY_MCP_URL": "http://gke-inventory-mcp-service/mcp/call_tool",
+        "HOTEL_SPECIALIST_URL": "http://gke-hotel-specialist-service/chat",
+    }
+
     print(f"Deploying {agent_obj.name}...")
     try:
         remote_agent = agent_engines.create(
@@ -76,15 +93,7 @@ def create_agent(agent_obj) -> None:
             display_name=agent_obj.name,
             requirements=requirements,
             extra_packages=[staging_dir],
-            env_vars={
-                "GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY": "true",
-                "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT": "true",
-                "OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED": "true",
-                "ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS": "false",
-                "LOG_FORMAT": "JSON",
-                "LOG_LEVEL": "INFO",
-                "RUNNING_IN_AGENT_ENGINE": "true"
-            }
+            env_vars=env_vars
         )
         print(f"Created remote agent {agent_obj.name}: {remote_agent.resource_name}")
     finally:

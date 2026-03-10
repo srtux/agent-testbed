@@ -39,7 +39,16 @@ build-backend = "hatchling.build"
 package = true
 
 [tool.uv.workspace]
-members = ["agents/*", "mcp_servers/*", "traffic_generator"]
+members = [
+    "agents/RootRouter",
+    "agents/BookingOrchestrator",
+    "agents/CarRentalSpecialist",
+    "agents/FlightSpecialist",
+    "agents/HotelSpecialist",
+    "agents/WeatherSpecialist",
+    "mcp_servers/*",
+    "traffic_generator"
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["scripts", "testbed_utils"]
