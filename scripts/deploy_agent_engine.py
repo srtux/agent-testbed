@@ -102,7 +102,7 @@ def create_agent(agent_obj, custom_domain, service_urls=None) -> None:
         **urls,
     }
 
-    print(f"Deploying {agent_obj.name}...")
+    print(f"🤖 Deploying {agent_obj.name}...")
     resource_name = None
     try:
         remote_agent = agent_engines.create(
@@ -113,7 +113,7 @@ def create_agent(agent_obj, custom_domain, service_urls=None) -> None:
             env_vars=env_vars
         )
         resource_name = remote_agent.resource_name
-        print(f"Created remote agent {agent_obj.name}: {resource_name}")
+        print(f"✅ Created remote agent {agent_obj.name}: {resource_name}")
     finally:
         if os.path.exists(staging_dir):
             shutil.rmtree(staging_dir)
@@ -129,7 +129,7 @@ def create(custom_domain, service_urls=None) -> dict:
     agents = [root_router_agent, booking_agent]
     results = {}
 
-    print(f"Deploying {len(agents)} agents in parallel...")
+    print(f"🚀 Deploying {len(agents)} agents in parallel...")
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(agents)) as executor:
         futures = {executor.submit(create_agent, agent, custom_domain, service_urls): agent for agent in agents}
         for future in concurrent.futures.as_completed(futures):
@@ -139,7 +139,7 @@ def create(custom_domain, service_urls=None) -> dict:
                 if resource_name:
                     results[agent.name] = resource_name
             except Exception as e:
-                print(f"Error deploying {agent.name}: {e}")
+                print(f"❌ Error deploying {agent.name}: {e}")
 
     # Write results to a JSON file for the deploy orchestrator to consume
     output_path = os.path.join(project_root, "agent_engine_outputs.json")

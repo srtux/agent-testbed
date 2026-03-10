@@ -69,17 +69,17 @@ def build_docker_image(name, path, image_url, root_dir, use_docker, log_path):
             raise FileNotFoundError(f"Dockerfile not found for {name}")
 
         if use_docker:
-            f.write(f"Building {name} with docker (from project root)...\n")
+            f.write(f"🐳 Building {name} with docker (from project root)...\n")
             run_command([
                 "docker", "build",
                 "-t", image_url,
                 "-f", str(dockerfile_path),
                 "."
             ], cwd=root_dir, log_file=f)
-            f.write(f"Pushing {name}...\n")
+            f.write(f"📤 Pushing {name} to {image_url}...\n")
             run_command(["docker", "push", image_url], log_file=f)
         else:
-            f.write(f"Building {name} with gcloud builds submit (from project root)...\n")
+            f.write(f"☁️ Building {name} with gcloud builds submit (from project root)...\n")
             # Build from root context to handle uv workspace dependencies correctly
             temp_dockerfile = root_dir / f"Dockerfile.{name}"
             shutil.copy2(dockerfile_path, temp_dockerfile)
@@ -112,24 +112,24 @@ def build_docker_image(name, path, image_url, root_dir, use_docker, log_path):
 def package_traffic_generator(traffic_gen_dir, zip_path_base, project_id, region, log_path):
     """Worker function for packaging and uploading traffic generator."""
     with open(log_path, "w") as f:
-        f.write(f"Packaging Traffic Generator from {traffic_gen_dir}...\n")
+        f.write(f"📦 Packaging Traffic Generator from {traffic_gen_dir}...\n")
         shutil.make_archive(str(zip_path_base), "zip", str(traffic_gen_dir))
 
         zip_path = Path(f"{zip_path_base}.zip")
         bucket_name = f"{project_id}-deploy-artifacts"
         gcs_path = f"gs://{bucket_name}/traffic_generator_source.zip"
 
-        f.write(f"Creating bucket {bucket_name} if needed...\n")
+        f.write(f"🪣 Creating bucket {bucket_name} if needed...\n")
         subprocess.run(["gsutil", "mb", "-l", region, f"gs://{bucket_name}"], check=False, stdout=f, stderr=subprocess.STDOUT)
 
-        f.write(f"Uploading {zip_path} to {gcs_path}...\n")
+        f.write(f"📤 Uploading {zip_path} to {gcs_path}...\n")
         run_command(["gsutil", "cp", str(zip_path), gcs_path], log_file=f)
     return gcs_path
 
 
 def ensure_terraform_imports(terraform_dir, project_id, tf_vars, log_file=None):
     """Checks for already existing resources and imports them into state."""
-    msg = "Checking for existing resources to import into Terraform state..."
+    msg = "🔍 Checking for existing resources to import into Terraform state..."
     if log_file: log_file.write(f"{msg}\n")
     print(msg)
 
@@ -180,7 +180,7 @@ def get_terraform_output(terraform_dir, output_name):
 def deploy_agent_engine_task(root_dir, project_id, region, custom_domain, log_path):
     """Deploys Agent Engine agents. Returns dict of agent outputs from JSON file."""
     with open(log_path, "w") as f:
-        f.write("Deploying Agent Engine...\n")
+        f.write("🤖 Deploying Agent Engine...\n")
         agent_deploy_command = [
             "uv", "run", "deploy-agent-engine", "--create",
             "--project_id", project_id,
@@ -256,7 +256,7 @@ def main():
             pass
 
     if not use_docker:
-        print("Docker daemon unreachable, falling back to 'gcloud builds'...")
+        print("⚠️  Docker daemon unreachable, falling back to 'gcloud builds'...")
 
     image_urls = {}
     for name in components:
@@ -266,7 +266,7 @@ def main():
     # Phase 1: Build images + package traffic generator (parallel)
     # =========================================================================
     build_futures = []
-    print("\n[Phase 1] Starting parallel build tasks...")
+    print("\n[Phase 1] 🛠️  Starting parallel build tasks...")
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
         for name, path in components.items():
@@ -285,7 +285,7 @@ def main():
         else:
             image_urls["traffic_generator_source_zip"] = "gs://mock/source.zip"
 
-        print("Waiting for builds and packaging to complete...")
+        print("⏳ Waiting for builds and packaging to complete...")
         for future in concurrent.futures.as_completed(build_futures):
             try:
                 result = future.result()
@@ -293,11 +293,11 @@ def main():
                     # Terraform storage_source expects just the object name, not the full gs:// URI
                     image_urls["traffic_generator_source_zip"] = result.split("/")[-1]
                 elif isinstance(result, str):
-                    print(f"  Built image for {result}")
+                    print(f"  ✅ Built image for {result}")
                 else:
-                    print(f"  Parallel task completed")
+                    print(f"  ✅ Parallel task completed")
             except Exception as e:
-                print(f"  Task failed: {e}")
+                print(f"  ❌ Task failed: {e}")
                 print("Exiting due to build failure.")
                 sys.exit(1)
 
@@ -391,10 +391,10 @@ def main():
         )
         print("  Terraform re-applied with Agent Engine URLs.")
     else:
-        print("\n  Warning: No Agent Engine URLs captured. Traffic generator and WeatherSpecialist")
+        print("\n  ⚠️  Warning: No Agent Engine URLs captured. Traffic generator and WeatherSpecialist")
         print("  will not have Agent Engine URLs configured. Re-run with --root_router_url manually.")
 
-    print("\nDeployment Complete!")
+    print("\n✅ Deployment Complete!")
 
 
 if __name__ == "__main__":
