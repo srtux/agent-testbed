@@ -112,12 +112,6 @@ async def finalize_bookings(request: BookingRequest) -> dict:
     return {"status": "success", "confirmation": "CNF-12345"}
 
 
-# --- Agent Definition ---
-# When deployed to Agent Engine, the platform serializes `agent` via AdkApp(agent=agent).
-# Agent Engine provides its own TracerProvider and telemetry pipeline via
-# GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY env var — do NOT call setup_telemetry()
-# or FastAPIInstrumentor at module level as it conflicts with the platform's instrumentation.
-
 agent = LlmAgent(
     name="BookingOrchestrator",
     model=DEFAULT_PRO_MODEL,
@@ -130,8 +124,6 @@ agent = LlmAgent(
     tools=[calculate_trip_cost, format_itinerary, AgentTool(agent=itinerary_validator), finalize_bookings],
 )
 
-# FastAPI wrapper for local development and A2A HTTP simulation.
-# In Agent Engine, the platform uses AdkApp(agent=agent) directly — this is not used.
 runner = InMemoryRunner(agent=agent)
 runner.auto_create_session = True
 app = FastAPI()
