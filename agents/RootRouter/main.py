@@ -1,17 +1,12 @@
-# agent.py MUST come before other imports for OTel patching
-# ruff: noqa: E402
-from testbed_utils.telemetry import setup_telemetry
-from testbed_utils.logging import setup_logging
-from testbed_utils.config import DEFAULT_PRO_MODEL
-
-setup_telemetry()
-logger = setup_logging()
-
 import os
 import json
+import logging
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
 import httpx
 from fastapi import FastAPI
-from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from pydantic import BaseModel, Field
 from google.adk.agents import LlmAgent
 from google.adk.runners import InMemoryRunner
@@ -91,7 +86,7 @@ async def consult_flight_specialist(request: FlightRequest) -> dict:
 
 agent = LlmAgent(
     name="RootRouter",
-    model=DEFAULT_PRO_MODEL,
+    model="gemini-2.5-pro",
     static_instruction="""You are the Root Router for an Enterprise Travel Concierge. 
     You manage the transaction state across various sub-agents. Find flights via the Flight Specialist tool.
     
@@ -100,11 +95,9 @@ agent = LlmAgent(
 )
 
 # For Vertex AI Agent Engine, you typically don't need to wrap in FastAPI if using the platform's native endpoints.
-# However, if we want to simulate the entrypoint or handle webhooks, we can.
 runner = InMemoryRunner(agent=agent)
 runner.auto_create_session = True
 app = FastAPI()
-FastAPIInstrumentor.instrument_app(app)
 
 class RouterRequest(BaseModel):
     user_id: str

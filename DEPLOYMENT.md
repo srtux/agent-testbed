@@ -85,7 +85,22 @@ This runs 4 phases automatically:
 3. **Agent Engine** - Deploys RootRouter and BookingOrchestrator to Vertex AI
 4. **Re-apply** - Updates Terraform with Agent Engine URLs
 
+### 💡 Understanding the Phase State Bridge (Portability)
+
+Because some resources depend on each other cyclically (e.g., Cloud Functions need the Agent Engine address, but Agent Engine needs Terraform backend IPs deployed first), the script serializes state using **local JSON cache files**:
+
+*   **`terraform_service_urls.json`**:
+    *   *Generated after Phase 2* containing computed outputs from Terraform (the newly minted Cloud Run/GKE routes).
+    *   *Consumed in Phase 3* to build self-contained `env_vars` for Agent Engine scripts so specialists find routers safely.
+*   **`agent_engine_outputs.json`**:
+    *   *Generated after Phase 3* containing mapped Vertex AI resourceIDs (the deployed ADK roots).
+    *   *Consumed in Phase 4* to pass coordinates back into Terraform variables with final bounds.
+
+> [!IMPORTANT]
+> **These files are dynamically generated and are added to `.gitignore`.** They are strictly workspace-specific and do not need to be committed. Any engineer running the deployment loops from scratch will rebuild their state locally on launch cleanly.
+
 ### 4. (Custom domain mode only) Configure DNS
+
 
 After Phase 2, the deploy script prints the required DNS records:
 
@@ -245,6 +260,33 @@ TrafficGenerator -> RootRouter (Agent Engine)
 | `functions.tf` | Traffic generator Cloud Function |
 | `outputs.tf` | Service URLs, LB IPs, deployment mode |
 | `vertex_agents.tf` | Notes on Agent Engine deployment approach |
+
+## 🌐 Infrastructure & Networking Deep Dive
+
+The deployment utilizes a Hybrid Serverless & Kubernetes topology designed to stress both types of endpoints.
+
+### 1. compute primitives
+* **Agent Engine (Vertex AI):** Hosts logic scripts directly inside Google's sandboxed Reasoning Environment with access to Gemini LLM execution pathways safely.
+* **Cloud Run:** Drives stateless components (`FlightSpecialist`, `WeatherSpecialist`, `Profile_MCP`). Built using Standard container sets on serverless NEG binds.
+* **GKE (Google Kubernetes Engine):** Hosts heavier internal state loads (`HotelSpecialist`, `CarRental`, `Inventory_MCP`). Scaled linearly behind Standard Load-Balancing nodes.
+
+### 2. Networking Routing (Mode Discrepency)
+
+#### **🔵 Mode 1: Custom Domain Mode (Production Grade)**
+Uses global Host-Based HTTPS routing with conditional certificate hooks:
+*   **For Cloud Run:** Global External HTTPS Load Balancer maps requests via **Serverless NEGs**.
+    *   Example: `flight-specialist.${CUSTOM_DOMAIN}` binds to the serverless NEG addressing the underlying run template node routing accurately.
+*   **For GKE:** Google Compute **Ingress controller (`gce`)** acts as the gateway wrapper mapped into static targets utilizing `kubernetes_ingress_v1` mappings directly at ports `80`.
+
+#### **🟢 Mode 2: Direct Mode (Standard/Quick)**
+For debugging quickly without waiting on static proxy binding Certificate provision times:
+*   **Cloud Run:** Exposes standard default `*.run.app` naked URLs natively.
+*   **GKE Services:** Operates with service descriptions set positionally to `type = "LoadBalancer"`. This spawns independent target IP gateways for each pod cluster bundle autonomously to speed iteration loops.
+
+### 3. Service Mesh bindings (In-Cluster vs cross-cluster)
+*   **Within GKE:** Services like `HotelSpecialist` address `Inventory_MCP` utilizing standard cluster DNS pointers (e.g., `http://gke-inventory-mcp-service/sse`) completely avoiding load balancer delays.
+*   **Cross-Cluster calls:** Cloud Run components or Agent Engine run loops evaluate against full absolute endpoints (extracted through Terraform state bridge JSON caches locally).
+
 
 ## Troubleshooting
 

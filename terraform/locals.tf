@@ -11,7 +11,7 @@ locals {
   # --- GKE service URLs ---
   # With custom domain: use the Ingress-backed subdomain
   # Without: use LoadBalancer external IPs directly
-  hotel_specialist_url    = local.use_custom_domain ? "https://hotel-specialist.${var.custom_domain}" : "http://${kubernetes_service.hotel_specialist.status[0].load_balancer[0].ingress[0].ip}"
-  car_rental_url          = local.use_custom_domain ? "https://car-rental.${var.custom_domain}" : "http://${kubernetes_service.car_rental_specialist.status[0].load_balancer[0].ingress[0].ip}"
-  inventory_mcp_url       = local.use_custom_domain ? "https://inventory-mcp.${var.custom_domain}" : "http://${kubernetes_service.inventory_mcp.status[0].load_balancer[0].ingress[0].ip}"
+  hotel_specialist_url    = local.use_custom_domain ? "https://hotel-specialist.${var.custom_domain}" : try("http://${kubernetes_service.hotel_specialist.status[0].load_balancer[0].ingress[0].ip}", "")
+  car_rental_url          = local.use_custom_domain ? "https://car-rental.${var.custom_domain}" : try("http://${kubernetes_service.car_rental_specialist.status[0].load_balancer[0].ingress[0].ip}", "")
+  inventory_mcp_url       = local.use_custom_domain ? "https://inventory-mcp.${var.custom_domain}" : try("http://${kubernetes_service.inventory_mcp.status[0].load_balancer[0].ingress[0].ip}", "")
 }

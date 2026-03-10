@@ -1,22 +1,17 @@
-# agent.py MUST come before other imports for OTel patching
-# ruff: noqa: E402
-from testbed_utils.telemetry import setup_telemetry
-from testbed_utils.logging import setup_logging
-from testbed_utils.config import DEFAULT_PRO_MODEL
-
-setup_telemetry()
-logger = setup_logging()
-
 import os
 import json
+import logging
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 import httpx
 from pydantic import BaseModel, Field
 from google.genai import types
 from google.adk.agents import LlmAgent
 from google.adk.runners import InMemoryRunner
-from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from fastapi import FastAPI
+
 
 from mcp.client.sse import sse_client
 from mcp.client.session import ClientSession
@@ -64,11 +59,9 @@ async def finalize_bookings(request: BookingRequest) -> dict:
     
     return {"status": "success", "confirmation": "CNF-12345"}
 
-# --- Agent ---
-
 agent = LlmAgent(
     name="BookingOrchestrator",
-    model=DEFAULT_PRO_MODEL,
+    model="gemini-2.5-pro",
     static_instruction="You are the Booking Orchestrator. Finalize the plans by using the `finalize_bookings` tool, then summarize the confirmation details back.",
     tools=[finalize_bookings],
 )
@@ -78,7 +71,7 @@ agent = LlmAgent(
 runner = InMemoryRunner(agent=agent)
 runner.auto_create_session = True
 app = FastAPI()
-FastAPIInstrumentor.instrument_app(app)
+
 
 class OrchestrationRequest(BaseModel):
     user_id: str
