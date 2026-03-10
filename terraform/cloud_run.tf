@@ -46,7 +46,7 @@ resource "google_cloud_run_v2_service" "weather_specialist" {
       }
       env {
         name  = "BOOKING_ORCHESTRATOR_URL"
-        value = var.root_router_url
+        value = var.booking_orchestrator_url
       }
     }
   }

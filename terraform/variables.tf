@@ -18,11 +18,22 @@ variable "cluster_name" {
 variable "custom_domain" {
   type        = string
   description = "Base custom domain for the testbed (e.g., testbed.example.com). Each service gets a subdomain."
+
+  validation {
+    condition     = length(var.custom_domain) > 0
+    error_message = "custom_domain must not be empty."
+  }
 }
 
 variable "root_router_url" {
   type        = string
   description = "The HTTP endpoint URL for the RootRouter Agent Engine deployment. Passed after Agent Engine deploy."
+  default     = ""
+}
+
+variable "booking_orchestrator_url" {
+  type        = string
+  description = "The HTTP endpoint URL for the BookingOrchestrator Agent Engine deployment. Passed after Agent Engine deploy."
   default     = ""
 }
 

@@ -28,14 +28,7 @@ resource "google_service_account" "inventory_mcp_gsa" {
 
 # --- Per-service Cloud Run invocation bindings (least privilege) ---
 
-resource "google_cloud_run_v2_service_iam_member" "flight_specialist_invoke_hotel" {
-  project  = var.project_id
-  location = var.region
-  name     = google_cloud_run_v2_service.weather_specialist.name
-  role     = "roles/run.invoker"
-  member   = "serviceAccount:${google_service_account.flight_specialist.email}"
-}
-
+# FlightSpecialist (Cloud Run) -> WeatherSpecialist (Cloud Run)
 resource "google_cloud_run_v2_service_iam_member" "flight_specialist_invoke_weather" {
   project  = var.project_id
   location = var.region
@@ -44,14 +37,7 @@ resource "google_cloud_run_v2_service_iam_member" "flight_specialist_invoke_weat
   member   = "serviceAccount:${google_service_account.flight_specialist.email}"
 }
 
-resource "google_cloud_run_v2_service_iam_member" "weather_specialist_invoke_profile_mcp" {
-  project  = var.project_id
-  location = var.region
-  name     = google_cloud_run_v2_service.profile_mcp.name
-  role     = "roles/run.invoker"
-  member   = "serviceAccount:${google_service_account.weather_specialist.email}"
-}
-
+# GKE GSA -> Profile_MCP (Cloud Run) for CarRentalSpecialist
 resource "google_cloud_run_v2_service_iam_member" "gke_gsa_invoke_profile_mcp" {
   project  = var.project_id
   location = var.region

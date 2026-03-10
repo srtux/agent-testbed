@@ -48,7 +48,6 @@ resource "google_compute_backend_service" "flight_specialist" {
   name    = "flight-specialist-backend"
   project = var.project_id
 
-  protocol              = "HTTPS"
   load_balancing_scheme = "EXTERNAL_MANAGED"
 
   backend {
@@ -60,7 +59,6 @@ resource "google_compute_backend_service" "weather_specialist" {
   name    = "weather-specialist-backend"
   project = var.project_id
 
-  protocol              = "HTTPS"
   load_balancing_scheme = "EXTERNAL_MANAGED"
 
   backend {
@@ -72,7 +70,6 @@ resource "google_compute_backend_service" "profile_mcp" {
   name    = "profile-mcp-backend"
   project = var.project_id
 
-  protocol              = "HTTPS"
   load_balancing_scheme = "EXTERNAL_MANAGED"
 
   backend {

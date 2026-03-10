@@ -87,6 +87,7 @@ def create_agent(agent_obj, custom_domain) -> None:
     }
 
     print(f"Deploying {agent_obj.name}...")
+    resource_name = None
     try:
         remote_agent = agent_engines.create(
             adk_app,
@@ -95,18 +96,22 @@ def create_agent(agent_obj, custom_domain) -> None:
             extra_packages=[staging_dir],
             env_vars=env_vars
         )
-        print(f"Created remote agent {agent_obj.name}: {remote_agent.resource_name}")
+        resource_name = remote_agent.resource_name
+        print(f"Created remote agent {agent_obj.name}: {resource_name}")
     finally:
         if os.path.exists(staging_dir):
             shutil.rmtree(staging_dir)
     print()
+    return resource_name
 
 
 import concurrent.futures
+import json
 
-def create(custom_domain) -> None:
-    """Deploy all configured ADK agents in parallel."""
+def create(custom_domain) -> dict:
+    """Deploy all configured ADK agents in parallel. Returns dict of agent_name -> resource_name."""
     agents = [root_router_agent, booking_agent]
+    results = {}
 
     print(f"Deploying {len(agents)} agents in parallel...")
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(agents)) as executor:
@@ -114,9 +119,18 @@ def create(custom_domain) -> None:
         for future in concurrent.futures.as_completed(futures):
             agent = futures[future]
             try:
-                future.result()
+                resource_name = future.result()
+                if resource_name:
+                    results[agent.name] = resource_name
             except Exception as e:
                 print(f"Error deploying {agent.name}: {e}")
+
+    # Write results to a JSON file for the deploy orchestrator to consume
+    output_path = os.path.join(project_root, "agent_engine_outputs.json")
+    with open(output_path, "w") as f:
+        json.dump(results, f, indent=2)
+    print(f"Agent Engine outputs written to {output_path}")
+    return results
 
 
 def delete(resource_id: str) -> None:

@@ -177,7 +177,7 @@ def get_terraform_output(terraform_dir, output_name):
 
 
 def deploy_agent_engine_task(root_dir, project_id, region, custom_domain, log_path):
-    """Worker function for deploying Agent Engine with correct service URLs."""
+    """Deploys Agent Engine agents. Returns dict of agent outputs from JSON file."""
     with open(log_path, "w") as f:
         f.write("Deploying Agent Engine...\n")
         agent_deploy_command = [
@@ -188,7 +188,13 @@ def deploy_agent_engine_task(root_dir, project_id, region, custom_domain, log_pa
             "--custom_domain", custom_domain,
         ]
         run_command(agent_deploy_command, cwd=root_dir, log_file=f)
-    return True
+
+    # Read the outputs JSON written by deploy_agent_engine.py
+    outputs_path = root_dir / "agent_engine_outputs.json"
+    if outputs_path.exists():
+        with open(outputs_path) as f:
+            return json.load(f)
+    return {}
 
 
 def main():
@@ -285,7 +291,8 @@ def main():
             try:
                 result = future.result()
                 if isinstance(result, str) and result.startswith("gs://"):
-                    image_urls["traffic_generator_source_zip"] = result
+                    # Terraform storage_source expects just the object name, not the full gs:// URI
+                    image_urls["traffic_generator_source_zip"] = result.split("/")[-1]
                 elif isinstance(result, str):
                     print(f"  Built image for {result}")
                 else:
@@ -340,7 +347,39 @@ def main():
     print("\n[Phase 3] Deploying Agent Engine...")
 
     log_path = logs_dir / "deploy_agent_engine.log"
-    deploy_agent_engine_task(root_dir, project_id, region, custom_domain, log_path)
+    agent_outputs = deploy_agent_engine_task(root_dir, project_id, region, custom_domain, log_path)
+
+    # The Agent Engine resource names can be used to construct the HTTP endpoint URLs
+    # Format: projects/{project}/locations/{location}/reasoningEngines/{id}
+    # The actual invocation URLs depend on Agent Engine API surface
+    root_router_resource = agent_outputs.get("RootRouter", "")
+    booking_resource = agent_outputs.get("BookingOrchestrator", "")
+
+    if root_router_resource:
+        print(f"  RootRouter resource: {root_router_resource}")
+    if booking_resource:
+        print(f"  BookingOrchestrator resource: {booking_resource}")
+
+    # =========================================================================
+    # Phase 4: Re-apply Terraform with Agent Engine URLs
+    # =========================================================================
+    if root_router_resource or booking_resource:
+        print("\n[Phase 4] Re-applying Terraform with Agent Engine URLs...")
+
+        tf_vars_phase4 = tf_vars.copy()
+        if root_router_resource:
+            tf_vars_phase4.extend(["-var", f"root_router_url={root_router_resource}"])
+        if booking_resource:
+            tf_vars_phase4.extend(["-var", f"booking_orchestrator_url={booking_resource}"])
+
+        run_command(
+            ["terraform", "apply", "-auto-approve", "-parallelism=20"] + tf_vars_phase4,
+            cwd=terraform_dir
+        )
+        print("  Terraform re-applied with Agent Engine URLs.")
+    else:
+        print("\n  Warning: No Agent Engine URLs captured. Traffic generator and WeatherSpecialist")
+        print("  will not have Agent Engine URLs configured. Re-run with --root_router_url manually.")
 
     print("\nDeployment Complete!")
 

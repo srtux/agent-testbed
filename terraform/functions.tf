@@ -9,7 +9,7 @@ resource "google_cloudfunctions2_function" "traffic_generator" {
     entry_point = "main"
     source {
       storage_source {
-        bucket = "agent-engine-staging-${var.project_id}"
+        bucket = "${var.project_id}-deploy-artifacts"
         object = var.traffic_generator_source_zip
       }
     }

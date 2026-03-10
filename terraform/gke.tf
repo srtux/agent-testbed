@@ -37,7 +37,7 @@ resource "kubernetes_deployment" "hotel_specialist" {
           }
           env {
             name  = "INVENTORY_MCP_URL"
-            value = "http://gke-inventory-mcp-service/mcp/call_tool"
+            value = "http://gke-inventory-mcp-service/sse"
           }
           env {
             name  = "CAR_RENTAL_SPECIALIST_URL"

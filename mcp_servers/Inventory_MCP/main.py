@@ -63,6 +63,11 @@ async def commit_booking(user_id: str, flight_id: str = "", hotel_id: str = "", 
 app = mcp.sse_app()
 FastAPIInstrumentor.instrument_app(app)
 
+from starlette.responses import JSONResponse
+from starlette.routing import Route
+
+app.routes.append(Route("/health", lambda request: JSONResponse({"status": "ok"})))
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8091)

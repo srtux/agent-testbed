@@ -75,6 +75,10 @@ class ChatRequest(BaseModel):
     dates: str
     profile_context: dict | None = None
 
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
 @app.post("/chat")
 async def chat_endpoint(request: ChatRequest):
     # Log with context

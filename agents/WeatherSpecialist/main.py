@@ -91,6 +91,10 @@ class WeatherRequest(BaseModel):
     destination: str
     itinerary_so_far: str
 
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
 @app.post("/chat")
 async def chat_endpoint(request: WeatherRequest):
     logger.info(f"Weather Specialist checking conditions for {request.destination}")

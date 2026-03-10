@@ -93,6 +93,10 @@ class HotelRequest(BaseModel):
     destination: str
     dates: str
 
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
 @app.post("/chat")
 async def chat_endpoint(request: HotelRequest):
     logger.info(f"Hotel Specialist coordinating lodging at {request.destination}")
