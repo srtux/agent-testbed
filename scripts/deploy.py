@@ -91,7 +91,6 @@ def build_docker_image(name, path, image_url, root_dir, use_docker, log_path):
                     ], cwd=root_dir, log_file=f)
                 finally:
                     if actual_temp.exists(): os.remove(actual_temp)
-                raise e
             finally:
                 if temp_dockerfile.exists():
                     os.remove(temp_dockerfile)
