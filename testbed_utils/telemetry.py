@@ -27,14 +27,15 @@ def setup_telemetry(force_cloud_trace: bool = False):
         from opentelemetry.sdk.trace import TracerProvider
         from opentelemetry.sdk.trace.export import BatchSpanProcessor
         
-        # Determine if we should use Cloud Trace
-        # Cloud Run environments usually want Cloud Trace explicitly set up if not using the agent-based auto-instrumentation
+        # When running inside Agent Engine, the platform handles trace export
+        # automatically via GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY.
+        # For Cloud Run / local environments, set up the OTLP exporter manually.
         enable_manual_trace = os.environ.get("GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY", "false").lower() != "true"
-        
+
         if force_cloud_trace or enable_manual_trace:
-            from opentelemetry.exporter.cloud_trace import CloudTraceSpanExporter
+            from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
             provider = TracerProvider()
-            processor = BatchSpanProcessor(CloudTraceSpanExporter())
+            processor = BatchSpanProcessor(OTLPSpanExporter())
             provider.add_span_processor(processor)
             trace.set_tracer_provider(provider)
 
