@@ -10,6 +10,10 @@ resource "google_cloud_run_v2_service" "flight_specialist" {
     containers {
       image = var.flight_specialist_image
 
+      ports {
+        container_port = 8080
+      }
+
       env {
         name  = "OTEL_SEMCONV_STABILITY_OPT_IN"
         value = "gen_ai_latest_experimental"
@@ -38,6 +42,10 @@ resource "google_cloud_run_v2_service" "weather_specialist" {
     containers {
       image = var.weather_specialist_image
 
+      ports {
+        container_port = 8080
+      }
+
       env {
         name  = "OTEL_SEMCONV_STABILITY_OPT_IN"
         value = "gen_ai_latest_experimental"
@@ -65,6 +73,10 @@ resource "google_cloud_run_v2_service" "profile_mcp" {
 
     containers {
       image = var.profile_mcp_image
+
+      ports {
+        container_port = 8080
+      }
 
       env {
         name  = "OTEL_SEMCONV_STABILITY_OPT_IN"

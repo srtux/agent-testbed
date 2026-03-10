@@ -1,10 +1,15 @@
+# main.py MUST come before other imports for OTel patching
+# ruff: noqa: E402
+from testbed_utils.telemetry import setup_telemetry
+from testbed_utils.logging import setup_logging
+from testbed_utils.config import DEFAULT_PRO_MODEL, DEFAULT_FLASH_MODEL
+
+setup_telemetry()
+logger = setup_logging()
+
 import os
 import re
 import json
-import logging
-
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
 
 import httpx
 from fastapi import FastAPI
@@ -13,6 +18,7 @@ from google.adk.agents import LlmAgent
 from google.adk.runners import InMemoryRunner
 from google.adk.tools.agent_tool import AgentTool
 from google.genai import types
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
 from mcp.client.sse import sse_client
 from mcp.client.session import ClientSession
@@ -57,7 +63,7 @@ async def extract_travel_intent(prompt: str) -> dict:
 
 intent_classifier = LlmAgent(
     name="IntentClassifier",
-    model="gemini-2.5-flash",
+    model=DEFAULT_FLASH_MODEL,
     description="Classify user travel request type: new_booking, modification, inquiry, or cancellation.",
     static_instruction="""You classify travel requests into exactly one category:
     - new_booking: User wants to book a new trip
@@ -139,7 +145,7 @@ async def consult_flight_specialist(request: FlightRequest) -> dict:
 
 agent = LlmAgent(
     name="RootRouter",
-    model="gemini-2.5-pro",
+    model=DEFAULT_PRO_MODEL,
     static_instruction="""You are the Root Router for an Enterprise Travel Concierge.
     1. First, extract the travel intent from the user's request using extract_travel_intent.
     2. Classify the request type using the IntentClassifier tool.
@@ -154,10 +160,15 @@ agent = LlmAgent(
 runner = InMemoryRunner(agent=agent)
 runner.auto_create_session = True
 app = FastAPI()
+FastAPIInstrumentor.instrument_app(app)
 
 class RouterRequest(BaseModel):
     user_id: str
     prompt: str
+
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
 
 @app.post("/chat")
 async def chat_endpoint(request: RouterRequest):
