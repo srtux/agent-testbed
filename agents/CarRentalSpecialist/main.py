@@ -23,17 +23,33 @@ from mcp.client.session import ClientSession
 from opentelemetry.propagate import inject
 
 
-# --- Tools --
+# --- Local Tool (real compute) ---
+
+async def calculate_rental_price(car_class: str, days: int, loyalty_tier: str) -> dict:
+    """Calculate rental price based on car class, duration, and loyalty tier."""
+    from testbed_utils.config import CAR_RATE_TABLE, LOYALTY_DISCOUNTS
+    daily_rate = CAR_RATE_TABLE.get(car_class.lower(), 70)
+    subtotal = daily_rate * days
+    discount_pct = LOYALTY_DISCOUNTS.get(loyalty_tier, 0)
+    total = round(subtotal * (1 - discount_pct), 2)
+    return {
+        "car_class": car_class, "daily_rate": daily_rate, "days": days,
+        "subtotal": subtotal, "loyalty_discount_pct": discount_pct * 100,
+        "total": total,
+    }
+
+
+# --- MCP Delegation Tool ---
 
 async def check_loyalty_status(user_id: str) -> dict:
     """Check user's car rental loyalty status via CR Profile MCP."""
     logger.info(f"Checking car rental loyalty status for {user_id}")
-    
+
     profile_mcp_url = os.environ.get("PROFILE_MCP_URL", "http://localhost:8090/sse")
-    
+
     if profile_mcp_url.endswith("/mcp/call_tool"):
         profile_mcp_url = profile_mcp_url.replace("/mcp/call_tool", "/sse")
-        
+
     # GKE -> CR Profile MCP edge over FastMCP Session
     try:
         async with sse_client(profile_mcp_url) as (read, write):
@@ -41,9 +57,9 @@ async def check_loyalty_status(user_id: str) -> dict:
                 await session.initialize()
                 meta = {}
                 inject(meta)  # Propagate W3C traceparent into the _meta object
-                
+
                 res = await session.call_tool(
-                    "get_user_preferences", 
+                    "get_user_preferences",
                     arguments={"user_id": user_id},
                     meta=meta
                 )
@@ -55,18 +71,19 @@ async def check_loyalty_status(user_id: str) -> dict:
     except Exception as e:
         logger.warning(f"FastMCP call to user profile failed natively: {e}")
         return {"loyalty_tier": "Silver"}
-        
+
     return {"loyalty_tier": "Silver"}
 
 # --- Agent ---
 agent = LlmAgent(
     name="CarRentalSpecialist",
-    model=DEFAULT_PRO_MODEL, 
-    static_instruction="""You are the Car Rental Specialist. 
-    1. Check the user's loyalty status.
-    2. Propose a rental car based on the tier.
-    3. Return the summary.""",
-    tools=[check_loyalty_status],
+    model=DEFAULT_PRO_MODEL,
+    static_instruction="""You are the Car Rental Specialist.
+    1. Check the user's loyalty status via check_loyalty_status.
+    2. Calculate the rental price using calculate_rental_price based on the loyalty tier.
+    3. Propose a rental car based on the tier and calculated price.
+    4. Return the summary.""",
+    tools=[calculate_rental_price, check_loyalty_status],
 )
 
 # --- FastAPI App ---
@@ -88,14 +105,14 @@ async def health():
 async def chat_endpoint(request: CarRequest):
     logger.info(f"Car Rental Specialist securing a vehicle at {request.destination}")
     prompt = f"Find a rental car at {request.destination} for {request.dates}. User: {request.user_id}."
-    
+
     final_response = None
     async for event in runner.run_async(user_id=request.user_id, session_id="default", new_message=types.Content(role="user", parts=[types.Part.from_text(text=prompt)])):
         if hasattr(event, "content") and event.content:
             for part in event.content.parts:
                 if part.text:
                     final_response = (final_response or "") + part.text
-                    
+
     return {"status": "complete", "car_summary": final_response}
 
 if __name__ == "__main__":

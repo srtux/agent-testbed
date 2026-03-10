@@ -9,6 +9,7 @@ logger = setup_logging()
 
 import os
 import json
+from datetime import datetime, date
 
 from fastapi import FastAPI
 from pydantic import BaseModel
@@ -18,17 +19,56 @@ from google.adk.runners import InMemoryRunner
 import httpx
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
-# --- Tools --
+# --- Local Tools (real compute, not just mock returns) ---
+
+async def validate_dates(dates: str) -> dict:
+    """Parse and validate a travel date range string. Returns structured date info or error."""
+    try:
+        parts = [d.strip() for d in dates.replace(" to ", "-").replace("/", "-").split("-")]
+        if len(parts) >= 6:
+            start = date(int(parts[0]), int(parts[1]), int(parts[2]))
+            end = date(int(parts[3]), int(parts[4]), int(parts[5]))
+        elif len(parts) == 2:
+            start = datetime.strptime(parts[0].strip(), "%Y-%m-%d").date()
+            end = datetime.strptime(parts[1].strip(), "%Y-%m-%d").date()
+        else:
+            return {"valid": True, "days": 5, "note": "Could not parse dates precisely, assuming 5 days"}
+        days = (end - start).days
+        if days <= 0:
+            return {"valid": False, "error": "End date must be after start date"}
+        if days > 30:
+            return {"valid": False, "error": "Trip duration exceeds 30-day maximum"}
+        return {"valid": True, "days": days, "start": str(start), "end": str(end)}
+    except Exception:
+        return {"valid": True, "days": 5, "note": "Could not parse dates precisely, assuming 5 days"}
+
+
 async def check_flight_availability(user_id: str, destination: str, dates: str) -> dict:
-    """Mock database check for flights."""
+    """Check flight availability with fare calculation based on route and duration."""
+    from testbed_utils.config import FARE_TABLE
     logger.info(f"Checking flights for {destination} on {dates} (User: {user_id})")
-    return {"status": "available", "cost": 450, "airline": "CloudAir"}
+    base_fare = FARE_TABLE.get(destination.upper()[:3], 400)
+    # Parse duration for surcharge
+    days = 5
+    try:
+        parts = [d.strip() for d in dates.replace(" to ", "-").replace("/", "-").split("-")]
+        if len(parts) >= 6:
+            start = date(int(parts[0]), int(parts[1]), int(parts[2]))
+            end = date(int(parts[3]), int(parts[4]), int(parts[5]))
+            days = max(1, (end - start).days)
+    except Exception:
+        pass
+    total = base_fare + (days * 15)
+    return {"status": "available", "cost": total, "airline": "CloudAir", "days": days, "base_fare": base_fare}
+
+
+# --- A2A HTTP Delegation Tools ---
 
 async def delegate_to_hotel_specialist(user_id: str, destination: str, dates: str) -> dict:
     """Delegates to the Hotel Specialist on GKE."""
     logger.info(f"Delegating to HotelSpecialist for {user_id}")
     hotel_url = os.environ.get("HOTEL_SPECIALIST_URL", "http://localhost:8084/chat")
-    
+
     async with httpx.AsyncClient() as client:
         payload = {"user_id": user_id, "destination": destination, "dates": dates}
         res = await client.post(hotel_url, json=payload, timeout=60.0)
@@ -40,7 +80,7 @@ async def delegate_to_weather_specialist(user_id: str, destination: str, itinera
     """Delegates to the Weather Specialist to check conditions and pass on the itinerary."""
     logger.info(f"Delegating to WeatherSpecialist for {user_id}")
     weather_url = os.environ.get("WEATHER_SPECIALIST_URL", "http://localhost:8083/chat")
-    
+
     async with httpx.AsyncClient() as client:
         payload = {"user_id": user_id, "destination": destination, "itinerary_so_far": itinerary_so_far}
         res = await client.post(weather_url, json=payload, timeout=60.0)
@@ -48,16 +88,33 @@ async def delegate_to_weather_specialist(user_id: str, destination: str, itinera
             return {"status": "mock_success"}
         return res.json()
 
+
+# --- In-Process Sub-Agent (transfer model via sub_agents=[]) ---
+
+seat_selector = LlmAgent(
+    name="SeatSelector",
+    model=DEFAULT_FLASH_MODEL,
+    description="Select optimal seat based on user preferences and flight details.",
+    static_instruction="""You are a seat selection specialist. Based on the user's preferences
+    (aisle/window/middle) and flight details, recommend a specific seat.
+    Be concise — return just the seat recommendation and brief reason.
+    When done, transfer back to the FlightSpecialist.""",
+)
+
+
 # --- Agent ---
 agent = LlmAgent(
     name="FlightSpecialist",
-    model=DEFAULT_FLASH_MODEL, 
-    static_instruction="""You are the Flight Specialist. 
-    1. Check flight availability.
-    2. Delegate hotel booking coordination to the Hotel Specialist.
-    3. Delegate the final weather check and onward orchestration to the Weather Specialist.
+    model=DEFAULT_FLASH_MODEL,
+    static_instruction="""You are the Flight Specialist.
+    1. Validate the travel dates using validate_dates.
+    2. Check flight availability with fare calculation.
+    3. If the user has a seat preference, delegate to SeatSelector for seat assignment.
+    4. Delegate hotel booking coordination to the Hotel Specialist.
+    5. Delegate the final weather check and onward orchestration to the Weather Specialist.
     Return the combined results to the caller.""",
-    tools=[check_flight_availability, delegate_to_hotel_specialist, delegate_to_weather_specialist],
+    tools=[validate_dates, check_flight_availability, delegate_to_hotel_specialist, delegate_to_weather_specialist],
+    sub_agents=[seat_selector],
 )
 
 # --- FastAPI App ---
@@ -83,9 +140,9 @@ async def health():
 async def chat_endpoint(request: ChatRequest):
     # Log with context
     logger.info(f"Received request to process flights for {request.destination} (User: {request.user_id})")
-    
+
     prompt = f"User {request.user_id} wants a flight from {request.departure_airport} to {request.destination} for {request.dates}. Preferences context: {json.dumps(request.profile_context)}. Coordinate with Hotel and Weather specialists."
-    
+
     # Run the agent over the prompt
     # The ADK run_async will create its own spans, appropriately as children
     # of the FastAPI HTTP Request span (which has the remote trace ID)
@@ -95,7 +152,7 @@ async def chat_endpoint(request: ChatRequest):
             for part in event.content.parts:
                 if part.text:
                     final_response = (final_response or "") + part.text
-                    
+
     return {"agent_response": final_response}
 
 if __name__ == "__main__":

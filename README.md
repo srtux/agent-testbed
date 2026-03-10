@@ -6,14 +6,14 @@ This repository contains a testbed for a distributed AI architecture using the G
 
 The application is structured into orchestration agents, specialist sub-agents, and resource servers:
 
-- **RootRouter**: The primary orchestration agent deployed on Vertex AI Agent Engine. It handles user requests and delegates to sub-agents.
-- **FlightSpecialist**: A specialized agent deployed on Cloud Run, built with FastAPI, that coordinates flight queries.
+- **RootRouter**: The primary orchestration agent deployed on Vertex AI Agent Engine. It handles user requests, extracts travel intent (local tool), classifies request type via an in-process IntentClassifier sub-agent (AgentTool), and delegates to sub-agents.
+- **FlightSpecialist**: A specialized agent deployed on Cloud Run, built with FastAPI, that coordinates flight queries. Includes local tools for date validation and fare calculation, and an in-process SeatSelector sub-agent (transfer model via `sub_agents=[]`).
 - **Profile_MCP**: An MCP Server deployed on Cloud Run exposing user travel preferences via HTTP/SSE.
 - **Inventory_MCP**: An MCP Server deployed on GKE providing mock hotel and car rental data.
-- **BookingOrchestrator**: A transactional agent deployed on Agent Engine that finalizes and commits itineraries.
-- **HotelSpecialist**: A specialist agent deployed on GKE that queries hotel inventory and coordinates car rentals.
-- **CarRentalSpecialist**: A specialist agent deployed on GKE that checks user loyalty status and proposes rental cars.
-- **WeatherSpecialist**: A specialist agent deployed on Cloud Run that checks weather conditions and delegates to the BookingOrchestrator.
+- **BookingOrchestrator**: A transactional agent deployed on Agent Engine that calculates trip costs and formats itineraries (local tools), validates via an in-process ItineraryValidator sub-agent (AgentTool), and commits bookings via MCP.
+- **HotelSpecialist**: A specialist agent deployed on GKE that calculates nightly rates (local tool), queries hotel inventory via MCP, and coordinates car rentals via A2A HTTP.
+- **CarRentalSpecialist**: A specialist agent deployed on GKE that calculates rental pricing (local tool) and checks user loyalty status via MCP.
+- **WeatherSpecialist**: A specialist agent deployed on Cloud Run that checks weather conditions via MCP, suggests packing items (local tool), and delegates to the BookingOrchestrator.
 
 ### Shared Utilities
 
@@ -21,7 +21,7 @@ To maintain DRY (Don't Repeat Yourself) principles and architectural consistency
 
 - **telemetry.py**: Centralized OpenTelemetry initialization, forced GenAI semantic conventions, and multi-client instrumentation.
 - **logging.py**: Uniform JSON structured logging for Google Cloud Trace correlation.
-- **config.py**: Global environment presets and model version mappings to ensure parity across the hybrid topology.
+- **config.py**: Global environment presets, model version mappings, and shared mock data tables (fare tables, car rates, loyalty discounts) used by local compute tools across agents.
 
 ### Hybrid Runtime Distribution
 
@@ -39,18 +39,26 @@ The testbed is configured with a balanced hybrid distribution (2-2-2 for agents,
 graph TD
     %% Define Classes
     classDef agent fill:#1b5e20,stroke:#81c784,stroke-width:2px,color:#ffffff;
+    classDef subagent fill:#2e7d32,stroke:#a5d6a7,stroke-width:1px,color:#ffffff,stroke-dasharray: 3 3;
     classDef mcp fill:#0f4c81,stroke:#64b5f6,stroke-width:2px,color:#ffffff;
     classDef user fill:#b35900,stroke:#ffb74d,stroke-width:2px,color:#ffffff;
+    classDef tool fill:#4a148c,stroke:#ce93d8,stroke-width:1px,color:#ffffff,font-size:10px;
 
     %% Environments
     subgraph AgentEngineEnv["Agent Engine"]
         RootRouter[RootRouter]:::agent
+        IntentClassifier([IntentClassifier]):::subagent
+        RootRouter -.->|AgentTool| IntentClassifier
         BookingOrchestrator[BookingOrchestrator]:::agent
+        ItineraryValidator([ItineraryValidator]):::subagent
+        BookingOrchestrator -.->|AgentTool| ItineraryValidator
     end
     style AgentEngineEnv fill:transparent,stroke:#ce93d8,stroke-width:2px,stroke-dasharray: 5 5
 
     subgraph CloudRunEnv["Cloud Run"]
         FlightSpecialist[FlightSpecialist]:::agent
+        SeatSelector([SeatSelector]):::subagent
+        FlightSpecialist -.->|sub_agent| SeatSelector
         WeatherSpecialist[WeatherSpecialist]:::agent
         ProfileMCP[Profile_MCP Server]:::mcp
     end
@@ -65,21 +73,21 @@ graph TD
 
     %% Dependencies / Call Hierarchy
     User[/User Request/]:::user --> RootRouter
-    
+
     RootRouter --> ProfileMCP
     RootRouter --> FlightSpecialist
-    
+
     FlightSpecialist --> Hotel
     FlightSpecialist --> WeatherSpecialist
-    
+
     Hotel --> InvMCP
     Hotel --> Car
-    
+
     Car --> ProfileMCP
-    
+
     WeatherSpecialist --> InvMCP
     WeatherSpecialist --> BookingOrchestrator
-    
+
     BookingOrchestrator --> InvMCP
 ```
 
@@ -132,8 +140,9 @@ A key design goal of this testbed is to exercise **every type of tool and agent 
 | :--- | :--- | :--- | :--- |
 | **A2A HTTP delegation** | Yes (HTTP) | HTTP client → HTTP server → `gen_ai.agent` | RootRouter → FlightSpecialist |
 | **MCP SSE tool call** | Yes (SSE) | MCP client → SSE transport → `mcp.tool_call.*` | HotelSpecialist → Inventory_MCP |
-| **Local Python tool** | No | `gen_ai.tool` (in-process) | FlightSpecialist `check_flight_availability` |
-| **In-process sub-agent** | No | Parent `gen_ai.agent` → child `gen_ai.agent` | BookingOrchestrator → ItineraryValidator (sub-agent) |
+| **Local Python tool** | No | `gen_ai.tool` (in-process) | FlightSpecialist `validate_dates`, `check_flight_availability`; BookingOrchestrator `calculate_trip_cost`, `format_itinerary`; RootRouter `extract_travel_intent`; HotelSpecialist `calculate_nightly_rate`; CarRentalSpecialist `calculate_rental_price`; WeatherSpecialist `suggest_packing` |
+| **In-process sub-agent (transfer)** | No | Parent `gen_ai.agent` → child `gen_ai.agent` | FlightSpecialist → SeatSelector (`sub_agents=[]`) |
+| **In-process sub-agent (AgentTool)** | No | Parent `gen_ai.agent` → tool `gen_ai.agent` | RootRouter → IntentClassifier, BookingOrchestrator → ItineraryValidator (`AgentTool`) |
 | **ADK built-in tool** | Varies | Platform-specific spans | `google_search` for destination info |
 
 ### Local Tools (In-Process)
@@ -143,10 +152,15 @@ Not every tool call should cross a network boundary. Local Python function tools
 - How the LLM's tool-call loop interleaves local and remote operations
 - That the OpenTelemetry GenAI instrumentation captures tool inputs/outputs regardless of whether a network hop occurred
 
-Examples of local tools in this testbed:
-- `check_flight_availability` — mock flight database lookup (FlightSpecialist)
-- `validate_dates` — date range parsing and validation (FlightSpecialist)
-- `calculate_trip_cost` — price aggregation across flight, hotel, and car (BookingOrchestrator)
+Local tools implemented in this testbed (8 total across 6 agents):
+- `validate_dates` — date range parsing, duration calculation, boundary validation (FlightSpecialist)
+- `check_flight_availability` — route-based fare lookup and duration surcharge calculation (FlightSpecialist)
+- `extract_travel_intent` — regex NLP for airport codes, dates, priority, and budget tier (RootRouter)
+- `calculate_trip_cost` — multi-component cost aggregation with loyalty discounts (BookingOrchestrator)
+- `format_itinerary` — structured itinerary document builder (BookingOrchestrator)
+- `calculate_nightly_rate` — destination-based hotel rate multiplier (HotelSpecialist)
+- `calculate_rental_price` — car class pricing with loyalty tier discounts (CarRentalSpecialist)
+- `suggest_packing` — temperature/condition-based packing list generation (WeatherSpecialist)
 
 ### In-Process Sub-Agents
 
@@ -328,116 +342,96 @@ sequenceDiagram
 
     TrafficGen->>RootRouter: POST /chat (root span)
     activate RootRouter
-    
+
+    Note right of RootRouter: extract_travel_intent (local tool)
+    Note right of RootRouter: IntentClassifier (AgentTool, in-process)
+
     RootRouter->>ProfileMCP: POST /mcp/call_tool
     ProfileMCP-->>RootRouter: returns preferences
-    
+
     RootRouter->>FlightSpecialist: POST /chat
     activate FlightSpecialist
-    
+
+    Note right of FlightSpecialist: validate_dates (local tool)
+    Note right of FlightSpecialist: check_flight_availability (local tool)
+    Note right of FlightSpecialist: SeatSelector (sub_agent, in-process)
+
     FlightSpecialist->>Hotel: POST /chat
     activate Hotel
     Hotel->>InvMCP: POST /mcp/call_tool
     InvMCP-->>Hotel: returns inventory
-    
+    Note right of Hotel: calculate_nightly_rate (local tool)
+
     Hotel->>Car: POST /chat
     activate Car
     Car->>ProfileMCP: POST /mcp/call_tool
     ProfileMCP-->>Car: returns loyalty status
+    Note right of Car: calculate_rental_price (local tool)
     Car-->>Hotel: returns Car summary
     deactivate Car
     Hotel-->>FlightSpecialist: returns Hotel+Car summary
     deactivate Hotel
-    
+
     FlightSpecialist->>Weather: POST /chat
     activate Weather
     Weather->>InvMCP: POST /mcp/call_tool
     InvMCP-->>Weather: returns conditions
-    
+    Note right of Weather: suggest_packing (local tool)
+
     Weather->>BookingOrchestrator: POST /chat
     activate BookingOrchestrator
+    Note right of BookingOrchestrator: calculate_trip_cost (local tool)
+    Note right of BookingOrchestrator: format_itinerary (local tool)
+    Note right of BookingOrchestrator: ItineraryValidator (AgentTool, in-process)
     BookingOrchestrator->>InvMCP: POST /mcp/call_tool (commit)
     InvMCP-->>BookingOrchestrator: returns confirmation
     BookingOrchestrator-->>Weather: returns Finalized Itinerary
     deactivate BookingOrchestrator
-    
+
     Weather-->>FlightSpecialist: returns Weather + Itinerary
     deactivate Weather
-    
+
     FlightSpecialist-->>RootRouter: returns full specialized summary
     deactivate FlightSpecialist
-    
+
     RootRouter-->>TrafficGen: returns complete orchestration
     deactivate RootRouter
 ```
 
 ## Recommendations & Roadmap
 
-The following enhancements would make this testbed a comprehensive reference implementation for tracing distributed AI agent systems.
+The following enhancements would make this testbed a comprehensive reference implementation for tracing distributed AI agent systems. Items 1 and 2 are implemented; items 3-8 remain as future work.
 
-### 1. Add Local Tools with Real Compute
+### 1. Add Local Tools with Real Compute — IMPLEMENTED
 
-Currently `check_flight_availability` returns a hardcoded dict. Replace mock returns with lightweight but real computation that produces meaningful span durations and attributes:
+Every agent now includes local Python tools that perform real computation (date parsing, fare calculation, cost aggregation, rate adjustment, rental pricing, packing suggestions). These produce `gen_ai.tool` spans entirely in-process, contrasting with network-crossing MCP and A2A spans.
 
-```python
-# Instead of:
-async def check_flight_availability(...) -> dict:
-    return {"status": "available", "cost": 450}
-
-# Do:
-async def check_flight_availability(user_id: str, destination: str, dates: str) -> dict:
-    """Check flight availability with date validation and fare calculation."""
-    parsed_start, parsed_end = parse_travel_dates(dates)  # Can fail — interesting error spans
-    days = (parsed_end - parsed_start).days
-    base_fare = FARE_TABLE.get(destination, 400)
-    total = base_fare + (days * 15)  # Per-diem surcharge
-    return {"status": "available", "cost": total, "airline": "CloudAir", "days": days}
-```
-
-Recommended local tools to add:
-
-| Agent | Tool | Purpose |
+| Agent | Local Tool | Computation |
 | :--- | :--- | :--- |
-| FlightSpecialist | `validate_dates` | Parse and validate date ranges, reject past dates |
-| FlightSpecialist | `calculate_fare` | Compute fare based on route, dates, loyalty tier |
-| BookingOrchestrator | `calculate_trip_cost` | Aggregate costs from flight + hotel + car |
-| BookingOrchestrator | `format_itinerary` | Build a structured itinerary document from components |
-| RootRouter | `extract_travel_intent` | Parse natural language into structured fields (destination, dates, preferences) |
+| FlightSpecialist | `validate_dates` | Date range parsing, duration calculation, boundary checks |
+| FlightSpecialist | `check_flight_availability` | Route-based fare lookup from `FARE_TABLE`, duration surcharge |
+| BookingOrchestrator | `calculate_trip_cost` | Multi-component cost aggregation, loyalty discount application |
+| BookingOrchestrator | `format_itinerary` | Structured itinerary document builder with deterministic IDs |
+| RootRouter | `extract_travel_intent` | Regex-based NLP: airport code extraction, date detection, priority/budget classification |
+| HotelSpecialist | `calculate_nightly_rate` | Destination-based rate multiplier (premium city adjustments) |
+| CarRentalSpecialist | `calculate_rental_price` | Car class pricing with loyalty tier discounts from `CAR_RATE_TABLE` |
+| WeatherSpecialist | `suggest_packing` | Temperature/condition-based packing list generation |
 
-### 2. Add In-Process Sub-Agents via ADK `sub_agents`
+Shared mock data tables (`FARE_TABLE`, `CAR_RATE_TABLE`, `LOYALTY_DISCOUNTS`) are centralized in `testbed_utils/config.py`.
 
-Use ADK's native sub-agent pattern to show in-process agent delegation. This produces `gen_ai.agent` child spans without HTTP:
+### 2. Add In-Process Sub-Agents — IMPLEMENTED
 
-```python
-from google.adk.agents import LlmAgent
+Three in-process sub-agents demonstrate both ADK delegation patterns, producing nested `gen_ai.agent` spans without HTTP:
 
-# A lightweight validation sub-agent that runs in-process
-itinerary_validator = LlmAgent(
-    name="ItineraryValidator",
-    model=DEFAULT_FLASH_MODEL,
-    static_instruction="""You validate travel itineraries for completeness.
-    Check that all required fields are present: flight, hotel, car rental, dates,
-    and total cost. Flag any missing or inconsistent information.""",
-    tools=[validate_itinerary_structure],  # local tool
-)
+| Parent Agent | Sub-Agent | ADK Pattern | Purpose |
+| :--- | :--- | :--- | :--- |
+| FlightSpecialist | `SeatSelector` | `sub_agents=[]` (transfer model) | Recommends seat based on user preferences |
+| RootRouter | `IntentClassifier` | `AgentTool(agent=...)` (tool model) | Classifies request as new_booking/modification/inquiry/cancellation |
+| BookingOrchestrator | `ItineraryValidator` | `AgentTool(agent=...)` (tool model) | Validates itinerary completeness before committing |
 
-# Parent agent with both remote tools AND local sub-agents
-booking_orchestrator = LlmAgent(
-    name="BookingOrchestrator",
-    model=DEFAULT_PRO_MODEL,
-    static_instruction="...",
-    tools=[commit_booking, calculate_trip_cost],
-    sub_agents=[itinerary_validator],  # In-process, no HTTP
-)
-```
-
-Recommended sub-agents:
-
-| Parent Agent | Sub-Agent | Purpose |
-| :--- | :--- | :--- |
-| BookingOrchestrator | `ItineraryValidator` | Validates completeness before committing |
-| RootRouter | `IntentClassifier` | Classifies user request type (booking, inquiry, modification) |
-| FlightSpecialist | `SeatSelector` | Picks optimal seat based on user preferences |
+The two patterns produce different span structures:
+- **Transfer model** (`sub_agents=[]`): Parent yields control; sub-agent takes over the conversation and transfers back when done
+- **Tool model** (`AgentTool`): Parent calls sub-agent as a function; gets result back and continues
 
 ### 3. Add Error and Retry Spans
 
