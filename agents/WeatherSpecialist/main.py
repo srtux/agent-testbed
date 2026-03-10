@@ -59,7 +59,7 @@ async def fetch_weather(user_id: str, location: str) -> dict:
     return {"condition": "Sunny", "temperature_c": 22}
 
 async def delegate_to_booking_orchestrator(user_id: str, itinerary_details: str) -> dict:
-    """Sends finalized travel plans to the BookingOrchestrator Booking Orchestrator."""
+    """Sends finalized travel plans to the Booking Orchestrator."""
     logger.info(f"Delegating final confirmation to Booking Orchestrator for {user_id}")
     # Simulates edge WeatherSpecialist -> BookingOrchestrator
     booking_orch_url = os.environ.get("BOOKING_ORCHESTRATOR_URL", "http://localhost:8081/chat")
