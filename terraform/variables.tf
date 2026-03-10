@@ -15,6 +15,17 @@ variable "cluster_name" {
   default     = "default-cluster"
 }
 
+variable "custom_domain" {
+  type        = string
+  description = "Base custom domain for the testbed (e.g., testbed.example.com). Each service gets a subdomain."
+}
+
+variable "root_router_url" {
+  type        = string
+  description = "The HTTP endpoint URL for the RootRouter Agent Engine deployment. Passed after Agent Engine deploy."
+  default     = ""
+}
+
 # Image references injected by the deploy orchestrator
 variable "flight_specialist_image" {
   type        = string

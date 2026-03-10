@@ -2,15 +2,17 @@ import os
 import sys
 import subprocess
 import shutil
+import json
 import concurrent.futures
 from pathlib import Path
 from datetime import datetime
 
-def run_command(command, cwd=None, env=None, check=True, log_file=None):
+
+def run_command(command, cwd=None, env=None, check=True, log_file=None, capture_output=False):
     """Runs a shell command and returns the result."""
     cwd_str = str(cwd) if cwd else os.getcwd()
     cmd_str = " ".join(command)
-    
+
     if log_file:
         log_file.write(f"[{datetime.now().isoformat()}] Executing: {cmd_str} in {cwd_str}\n")
         log_file.flush()
@@ -18,7 +20,16 @@ def run_command(command, cwd=None, env=None, check=True, log_file=None):
         print(f"[{datetime.now().strftime('%H:%M:%S')}] Executing: {cmd_str}")
 
     try:
-        if log_file:
+        if capture_output:
+            return subprocess.run(
+                command,
+                cwd=cwd,
+                env=env or os.environ.copy(),
+                check=check,
+                capture_output=True,
+                text=True
+            )
+        elif log_file:
             return subprocess.run(
                 command,
                 cwd=cwd,
@@ -37,7 +48,7 @@ def run_command(command, cwd=None, env=None, check=True, log_file=None):
                 text=True
             )
     except subprocess.CalledProcessError as e:
-        msg = f"❌ Error executing command: {cmd_str}\nReturn code: {e.returncode}"
+        msg = f"Error executing command: {cmd_str}\nReturn code: {e.returncode}"
         if log_file:
             log_file.write(f"[{datetime.now().isoformat()}] {msg}\n")
             log_file.flush()
@@ -46,6 +57,7 @@ def run_command(command, cwd=None, env=None, check=True, log_file=None):
         if check:
             raise e
         return None
+
 
 def build_docker_image(name, path, image_url, root_dir, use_docker, log_path):
     """Worker function for building a single Docker image."""
@@ -59,8 +71,8 @@ def build_docker_image(name, path, image_url, root_dir, use_docker, log_path):
         if use_docker:
             f.write(f"Building {name} with docker (from project root)...\n")
             run_command([
-                "docker", "build", 
-                "-t", image_url, 
+                "docker", "build",
+                "-t", image_url,
                 "-f", str(dockerfile_path),
                 "."
             ], cwd=root_dir, log_file=f)
@@ -73,20 +85,20 @@ def build_docker_image(name, path, image_url, root_dir, use_docker, log_path):
             shutil.copy2(dockerfile_path, temp_dockerfile)
             try:
                 run_command([
-                    "gcloud", "builds", "submit", 
-                    "--tag", image_url, 
-                    "--dockerfile", str(temp_dockerfile), # gcloud supports --dockerfile now usually
+                    "gcloud", "builds", "submit",
+                    "--tag", image_url,
+                    "--dockerfile", str(temp_dockerfile),
                     "."
                 ], cwd=root_dir, log_file=f)
-            except Exception as e:
+            except Exception:
                 # Fallback if --dockerfile isn't supported or fails
                 f.write(f"Retrying with direct Dockerfile copy to root...\n")
                 actual_temp = root_dir / "Dockerfile"
                 shutil.copy2(dockerfile_path, actual_temp)
                 try:
                     run_command([
-                        "gcloud", "builds", "submit", 
-                        "--tag", image_url, 
+                        "gcloud", "builds", "submit",
+                        "--tag", image_url,
                         "."
                     ], cwd=root_dir, log_file=f)
                 finally:
@@ -96,49 +108,38 @@ def build_docker_image(name, path, image_url, root_dir, use_docker, log_path):
                     os.remove(temp_dockerfile)
     return name
 
+
 def package_traffic_generator(traffic_gen_dir, zip_path_base, project_id, region, log_path):
     """Worker function for packaging and uploading traffic generator."""
     with open(log_path, "w") as f:
         f.write(f"Packaging Traffic Generator from {traffic_gen_dir}...\n")
         shutil.make_archive(str(zip_path_base), "zip", str(traffic_gen_dir))
-        
+
         zip_path = Path(f"{zip_path_base}.zip")
         bucket_name = f"{project_id}-deploy-artifacts"
         gcs_path = f"gs://{bucket_name}/traffic_generator_source.zip"
-        
+
         f.write(f"Creating bucket {bucket_name} if needed...\n")
         subprocess.run(["gsutil", "mb", "-l", region, f"gs://{bucket_name}"], check=False, stdout=f, stderr=subprocess.STDOUT)
-        
+
         f.write(f"Uploading {zip_path} to {gcs_path}...\n")
         run_command(["gsutil", "cp", str(zip_path), gcs_path], log_file=f)
     return gcs_path
 
-def deploy_agent_engine_task(root_dir, project_id, region, log_path):
-    """Worker function for deploying Agent Engine."""
-    with open(log_path, "w") as f:
-        f.write("Deploying Agent Engine...\n")
-        agent_deploy_command = [
-            "uv", "run", "deploy-agent-engine", "--create",
-            "--project_id", project_id,
-            "--location", region,
-            "--bucket", f"{project_id}-deploy-artifacts"
-        ]
-        run_command(agent_deploy_command, cwd=root_dir, log_file=f)
-    return True
 
 def ensure_terraform_imports(terraform_dir, project_id, log_file=None):
     """Checks for already existing resources and imports them into state."""
-    msg = "🔍 Checking for existing resources to import into Terraform state..."
+    msg = "Checking for existing resources to import into Terraform state..."
     if log_file: log_file.write(f"{msg}\n")
     print(msg)
-    
+
     # Get current state list
     try:
         result = subprocess.run(["terraform", "state", "list"], cwd=terraform_dir, capture_output=True, text=True)
         state_list = result.stdout.splitlines() if result.returncode == 0 else []
     except Exception:
         state_list = []
-    
+
     # Known fixed-name resources that often cause 409 errors
     sas = {
         "google_service_account.flight_specialist": "flight-specialist",
@@ -147,27 +148,62 @@ def ensure_terraform_imports(terraform_dir, project_id, log_file=None):
         "google_service_account.test_runner": "travel-test-runner",
         "google_service_account.inventory_mcp_gsa": "inventory-mcp-gsa",
     }
-    
+
     for tf_name, sa_id in sas.items():
         if tf_name not in state_list:
             sa_email = f"{sa_id}@{project_id}.iam.gserviceaccount.com"
-            # Using full resource ID for import
             full_id = f"projects/{project_id}/serviceAccounts/{sa_email}"
-            
-            # check if exists in GCP
-            check = subprocess.run(["gcloud", "iam", "service-accounts", "describe", sa_email, "--project", project_id], capture_output=True)
+
+            check = subprocess.run(
+                ["gcloud", "iam", "service-accounts", "describe", sa_email, "--project", project_id],
+                capture_output=True
+            )
             if check.returncode == 0:
-                print(f"  📥 Importing {tf_name} ({sa_email})...")
-                # We don't want to fail if import fails (e.g. if it's already in state but we missed it)
+                print(f"  Importing {tf_name} ({sa_email})...")
                 subprocess.run(["terraform", "import", tf_name, full_id], cwd=terraform_dir, capture_output=True)
 
+
+def get_terraform_output(terraform_dir, output_name):
+    """Reads a single output value from Terraform state."""
+    result = subprocess.run(
+        ["terraform", "output", "-raw", output_name],
+        cwd=terraform_dir,
+        capture_output=True,
+        text=True
+    )
+    if result.returncode == 0:
+        return result.stdout.strip()
+    return None
+
+
+def deploy_agent_engine_task(root_dir, project_id, region, custom_domain, log_path):
+    """Worker function for deploying Agent Engine with correct service URLs."""
+    with open(log_path, "w") as f:
+        f.write("Deploying Agent Engine...\n")
+        agent_deploy_command = [
+            "uv", "run", "deploy-agent-engine", "--create",
+            "--project_id", project_id,
+            "--location", region,
+            "--bucket", f"{project_id}-deploy-artifacts",
+            "--custom_domain", custom_domain,
+        ]
+        run_command(agent_deploy_command, cwd=root_dir, log_file=f)
+    return True
+
+
 def main():
-    """Builds images, packages resources, and deploys using Terraform in parallel."""
+    """Builds images, deploys infra, then deploys Agent Engine with correct URLs.
+
+    Execution order:
+    1. Docker builds + traffic generator packaging (parallel)
+    2. Terraform apply (provisions Cloud Run, GKE, LBs, Cloud Functions)
+    3. Agent Engine deployment (needs Terraform outputs for service URLs)
+    """
     root_dir = Path(__file__).parent.parent.absolute()
     terraform_dir = root_dir / "terraform"
     logs_dir = root_dir / "logs" / "deploy"
     logs_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # Load environment variables from .env
     env = os.environ.copy()
     env_file = root_dir / ".env"
@@ -177,17 +213,23 @@ def main():
                 if "=" in line and not line.strip().startswith("#"):
                     key, value = line.strip().split("=", 1)
                     env[key] = value
-                
+
     project_id = env.get("PROJECT_ID", env.get("GOOGLE_CLOUD_PROJECT"))
     region = env.get("REGION", env.get("GOOGLE_CLOUD_LOCATION", "us-central1"))
-    cluster_name = env.get("CLUSTER_NAME", "summitt-cluster") # Using specific cluster name if found
+    cluster_name = env.get("CLUSTER_NAME", "default-cluster")
+    custom_domain = env.get("CUSTOM_DOMAIN")
 
     if not project_id:
-        print("❌ Error: PROJECT_ID or GOOGLE_CLOUD_PROJECT must be set in .env")
+        print("Error: PROJECT_ID or GOOGLE_CLOUD_PROJECT must be set in .env")
         sys.exit(1)
 
-    print(f"🚀 Deploying to project: {project_id} in region: {region}")
-    print(f"📄 Logs will be written to: {logs_dir}")
+    if not custom_domain:
+        print("Error: CUSTOM_DOMAIN must be set in .env (e.g., testbed.example.com)")
+        sys.exit(1)
+
+    print(f"Deploying to project: {project_id} in region: {region}")
+    print(f"Custom domain: {custom_domain}")
+    print(f"Logs will be written to: {logs_dir}")
 
     registry_prefix = f"gcr.io/{project_id}"
     components = {
@@ -205,74 +247,103 @@ def main():
         try:
             if subprocess.run(["docker", "info"], capture_output=True, timeout=5).returncode == 0:
                 use_docker = True
-        except: pass
-    
+        except Exception:
+            pass
+
     if not use_docker:
-        print("⚠️ Docker daemon unreachable, falling back to 'gcloud builds'...")
+        print("Docker daemon unreachable, falling back to 'gcloud builds'...")
 
     image_urls = {}
     for name in components:
         image_urls[name.replace("-", "_") + "_image"] = f"{registry_prefix}/{name}:latest"
 
-    # Start parallel tasks
-    futures = []
-    print("\n🏗️  Starting parallel deployment tasks...")
-    
+    # =========================================================================
+    # Phase 1: Build images + package traffic generator (parallel)
+    # =========================================================================
+    build_futures = []
+    print("\n[Phase 1] Starting parallel build tasks...")
+
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-        # 1. Docker Builds
         for name, path in components.items():
             image_url = image_urls[name.replace("-", "_") + "_image"]
             log_path = logs_dir / f"build_{name}.log"
-            futures.append(executor.submit(build_docker_image, name, path, image_url, root_dir, use_docker, log_path))
+            build_futures.append(
+                executor.submit(build_docker_image, name, path, image_url, root_dir, use_docker, log_path)
+            )
 
-        # 2. Traffic Generator
         traffic_gen_dir = root_dir / "traffic_generator"
         if traffic_gen_dir.exists():
             log_path = logs_dir / "package_traffic_generator.log"
-            futures.append(executor.submit(package_traffic_generator, traffic_gen_dir, root_dir / "traffic_generator_source", project_id, region, log_path))
+            build_futures.append(
+                executor.submit(package_traffic_generator, traffic_gen_dir, root_dir / "traffic_generator_source", project_id, region, log_path)
+            )
         else:
             image_urls["traffic_generator_source_zip"] = "gs://mock/source.zip"
 
-        # 3. Agent Engine
-        log_path = logs_dir / "deploy_agent_engine.log"
-        futures.append(executor.submit(deploy_agent_engine_task, root_dir, project_id, region, log_path))
-
-        # Wait for all to complete
-        print("⏳ Waiting for builds and packaging to complete...")
-        for future in concurrent.futures.as_completed(futures):
+        print("Waiting for builds and packaging to complete...")
+        for future in concurrent.futures.as_completed(build_futures):
             try:
                 result = future.result()
                 if isinstance(result, str) and result.startswith("gs://"):
                     image_urls["traffic_generator_source_zip"] = result
                 elif isinstance(result, str):
-                    print(f"  ✅ Built image for {result}")
+                    print(f"  Built image for {result}")
                 else:
-                    print(f"  ✅ Parallel task completed")
+                    print(f"  Parallel task completed")
             except Exception as e:
-                print(f"  ❌ Task failed: {e}")
-                print("Exiting due to failure.")
+                print(f"  Task failed: {e}")
+                print("Exiting due to build failure.")
                 sys.exit(1)
 
-    # 4. Terraform Deploy
-    print("\n🏗️  Proceeding to Terraform...")
-    
-    run_command(["terraform", "init"], cwd=terraform_dir)
-    
-    # Automatically handle 'already exists' for SAs
+    # =========================================================================
+    # Phase 2: Terraform (provisions Cloud Run, GKE, LBs, Cloud Functions)
+    # =========================================================================
+    print("\n[Phase 2] Running Terraform...")
+
+    tf_state_bucket = env.get("TF_STATE_BUCKET", f"{project_id}-tf-state")
+    run_command(
+        ["terraform", "init", f"-backend-config=bucket={tf_state_bucket}"],
+        cwd=terraform_dir
+    )
+
     ensure_terraform_imports(terraform_dir, project_id)
-    
+
     tf_vars = [
         "-var", f"project_id={project_id}",
         "-var", f"region={region}",
         "-var", f"cluster_name={cluster_name}",
+        "-var", f"custom_domain={custom_domain}",
     ]
     for key, value in image_urls.items():
         tf_vars.extend(["-var", f"{key}={value}"])
 
-    print("🚀 Applying Terraform (with parallelism=20)...")
+    print("Applying Terraform (with parallelism=20)...")
     run_command(["terraform", "apply", "-auto-approve", "-parallelism=20"] + tf_vars, cwd=terraform_dir)
 
-    print("\n✅ Deployment Complete!")
+    # Read outputs for Agent Engine deployment
+    cloud_run_lb_ip = get_terraform_output(terraform_dir, "cloud_run_lb_ip")
+    gke_lb_ip = get_terraform_output(terraform_dir, "gke_lb_ip")
+
+    print(f"\n  Cloud Run LB IP: {cloud_run_lb_ip}")
+    print(f"  GKE LB IP:      {gke_lb_ip}")
+    print(f"\n  Configure DNS A records:")
+    print(f"    flight-specialist.{custom_domain} -> {cloud_run_lb_ip}")
+    print(f"    weather-specialist.{custom_domain} -> {cloud_run_lb_ip}")
+    print(f"    profile-mcp.{custom_domain}        -> {cloud_run_lb_ip}")
+    print(f"    hotel-specialist.{custom_domain}    -> {gke_lb_ip}")
+    print(f"    car-rental.{custom_domain}          -> {gke_lb_ip}")
+    print(f"    inventory-mcp.{custom_domain}       -> {gke_lb_ip}")
+
+    # =========================================================================
+    # Phase 3: Agent Engine (runs AFTER Terraform so URLs are known)
+    # =========================================================================
+    print("\n[Phase 3] Deploying Agent Engine...")
+
+    log_path = logs_dir / "deploy_agent_engine.log"
+    deploy_agent_engine_task(root_dir, project_id, region, custom_domain, log_path)
+
+    print("\nDeployment Complete!")
+
 
 if __name__ == "__main__":
     main()

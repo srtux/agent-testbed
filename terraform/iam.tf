@@ -26,27 +26,38 @@ resource "google_service_account" "inventory_mcp_gsa" {
   display_name = "Inventory MCP GSA for Workload Identity"
 }
 
-# --- Service-to-Service Invocations ---
+# --- Per-service Cloud Run invocation bindings (least privilege) ---
 
-# Authorize Flight Specialist to invoke Cloud Run
-resource "google_project_iam_member" "flight_specialist_run_invoker" {
-  project = var.project_id
-  role    = "roles/run.invoker"
-  member  = "serviceAccount:${google_service_account.flight_specialist.email}"
+resource "google_cloud_run_v2_service_iam_member" "flight_specialist_invoke_hotel" {
+  project  = var.project_id
+  location = var.region
+  name     = google_cloud_run_v2_service.weather_specialist.name
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${google_service_account.flight_specialist.email}"
 }
 
-# Authorize Weather Specialist to invoke Cloud Run 
-resource "google_project_iam_member" "weather_specialist_run_invoker" {
-  project = var.project_id
-  role    = "roles/run.invoker"
-  member  = "serviceAccount:${google_service_account.weather_specialist.email}"
+resource "google_cloud_run_v2_service_iam_member" "flight_specialist_invoke_weather" {
+  project  = var.project_id
+  location = var.region
+  name     = google_cloud_run_v2_service.weather_specialist.name
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${google_service_account.flight_specialist.email}"
 }
 
-# Authorize Profile MCP to invoke Cloud Run
-resource "google_project_iam_member" "profile_mcp_run_invoker" {
-  project = var.project_id
-  role    = "roles/run.invoker"
-  member  = "serviceAccount:${google_service_account.profile_mcp.email}"
+resource "google_cloud_run_v2_service_iam_member" "weather_specialist_invoke_profile_mcp" {
+  project  = var.project_id
+  location = var.region
+  name     = google_cloud_run_v2_service.profile_mcp.name
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${google_service_account.weather_specialist.email}"
+}
+
+resource "google_cloud_run_v2_service_iam_member" "gke_gsa_invoke_profile_mcp" {
+  project  = var.project_id
+  location = var.region
+  name     = google_cloud_run_v2_service.profile_mcp.name
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${google_service_account.inventory_mcp_gsa.email}"
 }
 
 # --- Test Runner Permissions ---
@@ -69,12 +80,17 @@ resource "google_project_iam_member" "test_runner_ai_user" {
   member  = "serviceAccount:${google_service_account.test_runner.email}"
 }
 
-
 # --- GKE Workload Identity Configuration ---
 
 resource "google_project_iam_member" "inventory_mcp_trace_agent" {
   project = var.project_id
   role    = "roles/cloudtrace.agent"
+  member  = "serviceAccount:${google_service_account.inventory_mcp_gsa.email}"
+}
+
+resource "google_project_iam_member" "inventory_mcp_ai_user" {
+  project = var.project_id
+  role    = "roles/aiplatform.user"
   member  = "serviceAccount:${google_service_account.inventory_mcp_gsa.email}"
 }
 

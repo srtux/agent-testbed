@@ -19,8 +19,12 @@ resource "google_cloudfunctions2_function" "traffic_generator" {
     max_instance_count = 1
     available_memory   = "256M"
     timeout_seconds    = 60
-    
+
     # Do not allow unauthenticated access
     service_account_email = google_service_account.test_runner.email
+
+    environment_variables = {
+      ROOT_ROUTER_URL = var.root_router_url
+    }
   }
 }

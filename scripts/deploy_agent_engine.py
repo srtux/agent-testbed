@@ -23,6 +23,7 @@ flags.DEFINE_string("project_id", None, "GCP project ID.")
 flags.DEFINE_string("location", None, "GCP location.")
 flags.DEFINE_string("bucket", None, "GCP bucket.")
 flags.DEFINE_string("resource_id", None, "ReasoningEngine resource ID.")
+flags.DEFINE_string("custom_domain", None, "Base custom domain for stable service URLs.")
 
 flags.DEFINE_bool("list", False, "List all agents.")
 flags.DEFINE_bool("create", False, "Creates new agents.")
@@ -30,7 +31,7 @@ flags.DEFINE_bool("delete", False, "Deletes an existing agent.")
 flags.mark_bool_flags_as_mutual_exclusive(["create", "delete", "list"])
 
 
-def create_agent(agent_obj) -> None:
+def create_agent(agent_obj, custom_domain) -> None:
     """Creates an agent engine for the given agent."""
     adk_app = AdkApp(agent=agent_obj)
 
@@ -56,8 +57,8 @@ def create_agent(agent_obj) -> None:
         "httpx>=0.28.0",
         "requests>=2.32.0"
     ]
-    
-    # We create a temporary staging directory to package 'agents' and 'testbed_utils' 
+
+    # We create a temporary staging directory to package 'agents' and 'testbed_utils'
     # as top-level packages for the remote engine.
     staging_dir = os.path.join(project_root, f"staging_{agent_obj.name}")
     if os.path.exists(staging_dir):
@@ -65,10 +66,8 @@ def create_agent(agent_obj) -> None:
     os.makedirs(staging_dir)
     shutil.copytree(os.path.join(project_root, "agents"), os.path.join(staging_dir, "agents"), dirs_exist_ok=True)
     shutil.copytree(os.path.join(project_root, "testbed_utils"), os.path.join(staging_dir, "testbed_utils"), dirs_exist_ok=True)
-    
-    # Environment variables for the Reasoning Engine
-    project_id = os.environ.get("PROJECT_ID", os.environ.get("GOOGLE_CLOUD_PROJECT"))
-    
+
+    # Build service URLs from the custom domain (stable, not guessed)
     env_vars = {
         "GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY": "true",
         "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT": "true",
@@ -78,12 +77,13 @@ def create_agent(agent_obj) -> None:
         "LOG_LEVEL": "INFO",
         "RUNNING_IN_AGENT_ENGINE": "true",
         "PYTHONPATH": ".",
-        # Service URLs
-        "FLIGHT_SPECIALIST_URL": f"https://flight-specialist-{project_id}.a.run.app/chat",
-        "WEATHER_SPECIALIST_URL": f"https://weather-specialist-{project_id}.a.run.app/chat",
-        "PROFILE_MCP_URL": f"https://profile-mcp-{project_id}.a.run.app/sse",
-        "INVENTORY_MCP_URL": "http://gke-inventory-mcp-service/mcp/call_tool",
-        "HOTEL_SPECIALIST_URL": "http://gke-hotel-specialist-service/chat",
+        # Service URLs via stable custom domain — reachable from Agent Engine
+        "FLIGHT_SPECIALIST_URL": f"https://flight-specialist.{custom_domain}/chat",
+        "WEATHER_SPECIALIST_URL": f"https://weather-specialist.{custom_domain}/chat",
+        "PROFILE_MCP_URL": f"https://profile-mcp.{custom_domain}/sse",
+        "INVENTORY_MCP_URL": f"https://inventory-mcp.{custom_domain}/sse",
+        "HOTEL_SPECIALIST_URL": f"https://hotel-specialist.{custom_domain}/chat",
+        "CAR_RENTAL_SPECIALIST_URL": f"https://car-rental.{custom_domain}/chat",
     }
 
     print(f"Deploying {agent_obj.name}...")
@@ -104,22 +104,19 @@ def create_agent(agent_obj) -> None:
 
 import concurrent.futures
 
-def create() -> None:
+def create(custom_domain) -> None:
     """Deploy all configured ADK agents in parallel."""
     agents = [root_router_agent, booking_agent]
-    
-    print(f"🚀 Deploying {len(agents)} agents in parallel...")
+
+    print(f"Deploying {len(agents)} agents in parallel...")
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(agents)) as executor:
-        # We wrap it in a list to ensure we wait for all to complete and catch exceptions
-        futures = {executor.submit(create_agent, agent): agent for agent in agents}
+        futures = {executor.submit(create_agent, agent, custom_domain): agent for agent in agents}
         for future in concurrent.futures.as_completed(futures):
             agent = futures[future]
             try:
                 future.result()
             except Exception as e:
-                print(f"❌ Error deploying {agent.name}: {e}")
-                # We don't exit immediately so other agents can continue, 
-                # but we could if we wanted a fail-fast behavior.
+                print(f"Error deploying {agent.name}: {e}")
 
 
 def delete(resource_id: str) -> None:
@@ -160,6 +157,11 @@ def _main(argv: list[str] | None = None) -> None:
         if FLAGS.bucket
         else os.getenv("GOOGLE_CLOUD_STORAGE_BUCKET")
     )
+    custom_domain = (
+        FLAGS.custom_domain
+        if FLAGS.custom_domain
+        else os.getenv("CUSTOM_DOMAIN")
+    )
 
     if not bucket and project_id:
         bucket = f"{project_id}-deploy-artifacts"
@@ -167,15 +169,19 @@ def _main(argv: list[str] | None = None) -> None:
     print(f"PROJECT: {project_id}")
     print(f"LOCATION: {location}")
     print(f"BUCKET: {bucket}")
+    print(f"CUSTOM_DOMAIN: {custom_domain}")
 
     if not project_id:
-        print("Missing required environment variable: GOOGLE_CLOUD_PROJECT or PROJECT_ID")
+        print("Missing required: GOOGLE_CLOUD_PROJECT or PROJECT_ID or --project_id")
         sys.exit(1)
     elif not location:
-        print("Missing required environment variable: GOOGLE_CLOUD_LOCATION or REGION")
+        print("Missing required: GOOGLE_CLOUD_LOCATION or REGION or --location")
         sys.exit(1)
     elif not bucket:
-        print("Missing required environment variable: GOOGLE_CLOUD_STORAGE_BUCKET")
+        print("Missing required: GOOGLE_CLOUD_STORAGE_BUCKET or --bucket")
+        sys.exit(1)
+    elif not custom_domain:
+        print("Missing required: CUSTOM_DOMAIN or --custom_domain")
         sys.exit(1)
 
     vertexai.init(
@@ -187,7 +193,7 @@ def _main(argv: list[str] | None = None) -> None:
     if FLAGS.list:
         list_agents()
     elif FLAGS.create:
-        create()
+        create(custom_domain)
     elif FLAGS.delete:
         if not FLAGS.resource_id:
             print("resource_id is required for delete")
@@ -196,7 +202,7 @@ def _main(argv: list[str] | None = None) -> None:
     else:
         # Default behavior
         print("No command flag provided. Defaulting to --create.")
-        create()
+        create(custom_domain)
 
 def main():
     app.run(_main)
