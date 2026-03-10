@@ -127,7 +127,7 @@ def package_traffic_generator(traffic_gen_dir, zip_path_base, project_id, region
     return gcs_path
 
 
-def ensure_terraform_imports(terraform_dir, project_id, log_file=None):
+def ensure_terraform_imports(terraform_dir, project_id, tf_vars, log_file=None):
     """Checks for already existing resources and imports them into state."""
     msg = "Checking for existing resources to import into Terraform state..."
     if log_file: log_file.write(f"{msg}\n")
@@ -159,8 +159,9 @@ def ensure_terraform_imports(terraform_dir, project_id, log_file=None):
                 capture_output=True
             )
             if check.returncode == 0:
-                print(f"  Importing {tf_name} ({sa_email})...")
-                subprocess.run(["terraform", "import", tf_name, full_id], cwd=terraform_dir, capture_output=True)
+                print(f"  📥 Importing {tf_name} ({sa_email})...")
+                # We don't want to fail if import fails (e.g. if it's already in state but we missed it)
+                subprocess.run(["terraform", "import"] + tf_vars + [tf_name, full_id], cwd=terraform_dir, capture_output=True)
 
 
 def get_terraform_output(terraform_dir, output_name):
@@ -303,15 +304,13 @@ def main():
     # =========================================================================
     # Phase 2: Terraform (provisions Cloud Run, GKE, LBs, Cloud Functions)
     # =========================================================================
-    print("\n[Phase 2] Running Terraform...")
+    print("\n[Phase 2] 🏗️  Running Terraform...")
 
     tf_state_bucket = env.get("TF_STATE_BUCKET", f"{project_id}-tf-state")
     run_command(
         ["terraform", "init", f"-backend-config=bucket={tf_state_bucket}"],
         cwd=terraform_dir
     )
-
-    ensure_terraform_imports(terraform_dir, project_id)
 
     tf_vars = [
         "-var", f"project_id={project_id}",
@@ -322,7 +321,10 @@ def main():
     for key, value in image_urls.items():
         tf_vars.extend(["-var", f"{key}={value}"])
 
-    print("Applying Terraform (with parallelism=20)...")
+    # Automatically handle 'already exists' for SAs
+    ensure_terraform_imports(terraform_dir, project_id, tf_vars)
+
+    print("🚀 Applying Terraform (with parallelism=20)...")
     run_command(["terraform", "apply", "-auto-approve", "-parallelism=20"] + tf_vars, cwd=terraform_dir)
 
     # Read and display service URLs from Terraform outputs
