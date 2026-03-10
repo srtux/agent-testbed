@@ -2,21 +2,23 @@
 
 import os
 import sys
+import shutil
+import concurrent.futures
+import json
+import yaml
 
-# Ensure we can import the agents
+# Ensure we can import the agents from the local filesystem during deployment setup
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
 
 import vertexai
-import shutil
 from absl import app, flags
 from dotenv import load_dotenv
 from vertexai import agent_engines
 from vertexai.preview.reasoning_engines import AdkApp
 
-# Import the agents
-from agents.RootRouter.main import agent as root_router_agent
-from agents.BookingOrchestrator.main import agent as booking_agent
+# Agents will be loaded dynamically in create() to ensure they are picked standalone.
+
 
 FLAGS = flags.FLAGS
 flags.DEFINE_string("project_id", None, "GCP project ID.")
@@ -31,8 +33,35 @@ flags.DEFINE_bool("delete", False, "Deletes an existing agent.")
 flags.mark_bool_flags_as_mutual_exclusive(["create", "delete", "list"])
 
 
-def create_agent(agent_obj, custom_domain, service_urls=None) -> None:
+def manual_find_packages(base_dir):
+    """Manually find packages by looking for directories with __init__.py."""
+    packages = []
+    for root, dirs, files in os.walk(base_dir):
+        if "__init__.py" in files:
+            # Get relative path and convert to package notation
+            rel_path = os.path.relpath(root, base_dir)
+            if rel_path == ".":
+                continue
+            packages.append(rel_path.replace(os.sep, "."))
+    return packages
+
+
+def create_agent(config, custom_domain, service_urls=None) -> None:
     """Creates an agent engine for the given agent."""
+    import importlib.util
+    import cloudpickle
+
+    agent_dir = os.path.abspath(os.path.join(project_root, config["dir"]))
+    module_name = f"main_{config['name']}"
+    spec = importlib.util.spec_from_file_location(module_name, os.path.join(agent_dir, "main.py"))
+    agent_module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = agent_module
+    spec.loader.exec_module(agent_module)
+
+    # Register by value to ensure all standalone agent code is serialized
+    cloudpickle.register_pickle_by_value(agent_module)
+    agent_obj = agent_module.agent
+
     adk_app = AdkApp(agent=agent_obj)
 
     # Core dependencies needed for Testbed ADK agents
@@ -58,16 +87,9 @@ def create_agent(agent_obj, custom_domain, service_urls=None) -> None:
         "requests>=2.32.0"
     ]
 
-    # We create a temporary staging directory to package 'agents' and 'testbed_utils'
-    # as top-level packages for the remote engine.
-    staging_dir = os.path.join(project_root, f"staging_{agent_obj.name}")
-    if os.path.exists(staging_dir):
-        shutil.rmtree(staging_dir)
-    os.makedirs(staging_dir)
-    shutil.copytree(os.path.join(project_root, "agents"), os.path.join(staging_dir, "agents"), dirs_exist_ok=True)
-    shutil.copytree(os.path.join(project_root, "testbed_utils"), os.path.join(staging_dir, "testbed_utils"), dirs_exist_ok=True)
 
     # Build service URLs - from custom domain or terraform outputs
+    urls = {}
     if custom_domain:
         urls = {
             "FLIGHT_SPECIALIST_URL": f"https://flight-specialist.{custom_domain}/chat",
@@ -87,7 +109,6 @@ def create_agent(agent_obj, custom_domain, service_urls=None) -> None:
             "CAR_RENTAL_SPECIALIST_URL": f"{service_urls.get('car_rental_url', '')}/chat",
         }
     else:
-        urls = {}
         print(f"  Warning: No custom_domain or service_urls provided for {agent_obj.name}")
 
     env_vars = {
@@ -98,7 +119,7 @@ def create_agent(agent_obj, custom_domain, service_urls=None) -> None:
         "LOG_FORMAT": "JSON",
         "LOG_LEVEL": "INFO",
         "RUNNING_IN_AGENT_ENGINE": "true",
-        "PYTHONPATH": ".",
+        "PYTHONPATH": "/code:/code/site-packages:/code/.venv/lib/python3.12/site-packages:.",
         **urls,
     }
 
@@ -109,37 +130,39 @@ def create_agent(agent_obj, custom_domain, service_urls=None) -> None:
             adk_app,
             display_name=agent_obj.name,
             requirements=requirements,
-            extra_packages=[staging_dir],
             env_vars=env_vars
         )
         resource_name = remote_agent.resource_name
         print(f"✅ Created remote agent {agent_obj.name}: {resource_name}")
-    finally:
-        if os.path.exists(staging_dir):
-            shutil.rmtree(staging_dir)
+    except Exception as e:
+        print(f"❌ Error creating agent {agent_obj.name}: {e}")
+        raise e
     print()
     return resource_name
 
 
-import concurrent.futures
-import json
-
 def create(custom_domain, service_urls=None) -> dict:
     """Deploy all configured ADK agents in parallel. Returns dict of agent_name -> resource_name."""
-    agents = [root_router_agent, booking_agent]
+    agent_configs = [
+        {"name": "RootRouter", "dir": "agents/RootRouter"},
+        {"name": "BookingOrchestrator", "dir": "agents/BookingOrchestrator"}
+    ]
+
+
     results = {}
 
-    print(f"🚀 Deploying {len(agents)} agents in parallel...")
-    with concurrent.futures.ThreadPoolExecutor(max_workers=len(agents)) as executor:
-        futures = {executor.submit(create_agent, agent, custom_domain, service_urls): agent for agent in agents}
+    print(f"🚀 Deploying {len(agent_configs)} agents in parallel...")
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(agent_configs)) as executor:
+        futures = {executor.submit(create_agent, config, custom_domain, service_urls): config for config in agent_configs}
         for future in concurrent.futures.as_completed(futures):
-            agent = futures[future]
+            config = futures[future]
             try:
                 resource_name = future.result()
                 if resource_name:
-                    results[agent.name] = resource_name
+                    results[config["name"]] = resource_name
             except Exception as e:
-                print(f"❌ Error deploying {agent.name}: {e}")
+                print(f"❌ Error deploying {config['name']}: {e}")
+
 
     # Write results to a JSON file for the deploy orchestrator to consume
     output_path = os.path.join(project_root, "agent_engine_outputs.json")

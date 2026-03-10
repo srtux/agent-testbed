@@ -6,7 +6,7 @@ resource "google_cloudfunctions2_function" "traffic_generator" {
 
   build_config {
     runtime     = "python312"
-    entry_point = "main"
+    entry_point = "generate_traffic"
     source {
       storage_source {
         bucket = "${var.project_id}-deploy-artifacts"
@@ -19,6 +19,7 @@ resource "google_cloudfunctions2_function" "traffic_generator" {
     max_instance_count = 1
     available_memory   = "256M"
     timeout_seconds    = 60
+    ingress_settings   = "ALLOW_INTERNAL_ONLY"
 
     # Do not allow unauthenticated access
     service_account_email = google_service_account.test_runner.email

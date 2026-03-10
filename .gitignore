@@ -57,3 +57,11 @@ logs/
 *.zip
 dummy_staging/
 staging_*/
+
+# Terraform apply outputs
+apply_output*.txt
+
+# Dynamically generated service mappings
+terraform_service_urls.json
+agent_engine_outputs.json
+

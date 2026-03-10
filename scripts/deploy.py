@@ -6,6 +6,7 @@ import json
 import concurrent.futures
 from pathlib import Path
 from datetime import datetime
+import argparse
 
 
 def run_command(command, cwd=None, env=None, check=True, log_file=None, capture_output=False):
@@ -200,13 +201,11 @@ def deploy_agent_engine_task(root_dir, project_id, region, custom_domain, log_pa
 
 
 def main():
-    """Builds images, deploys infra, then deploys Agent Engine with correct URLs.
+    parser = argparse.ArgumentParser(description="Deploy the agent testbed.")
+    parser.add_argument("--skip-build", action="store_true", help="Skip Phase 1 (Docker builds)")
+    parser.add_argument("--phase", type=int, choices=[1, 2, 3, 4], help="Run only specific phase and subsequent phases")
+    args = parser.parse_args()
 
-    Execution order:
-    1. Docker builds + traffic generator packaging (parallel)
-    2. Terraform apply (provisions Cloud Run, GKE, LBs, Cloud Functions)
-    3. Agent Engine deployment (needs Terraform outputs for service URLs)
-    """
     root_dir = Path(__file__).parent.parent.absolute()
     terraform_dir = root_dir / "terraform"
     logs_dir = root_dir / "logs" / "deploy"
@@ -265,134 +264,167 @@ def main():
     # =========================================================================
     # Phase 1: Build images + package traffic generator (parallel)
     # =========================================================================
-    build_futures = []
-    print("\n[Phase 1] 🛠️  Starting parallel build tasks...")
+    if not args.skip_build and (not args.phase or args.phase <= 1):
+        build_futures = []
+        print("\n[Phase 1] 🛠️  Starting parallel build tasks...")
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-        for name, path in components.items():
-            image_url = image_urls[name.replace("-", "_") + "_image"]
-            log_path = logs_dir / f"build_{name}.log"
-            build_futures.append(
-                executor.submit(build_docker_image, name, path, image_url, root_dir, use_docker, log_path)
-            )
+        num_workers = 10 if use_docker else 1
+        with concurrent.futures.ThreadPoolExecutor(max_workers=num_workers) as executor:
+            for name, path in components.items():
+                image_url = image_urls[name.replace("-", "_") + "_image"]
+                log_path = logs_dir / f"build_{name}.log"
+                build_futures.append(
+                    executor.submit(build_docker_image, name, path, image_url, root_dir, use_docker, log_path)
+                )
 
-        traffic_gen_dir = root_dir / "traffic_generator"
-        if traffic_gen_dir.exists():
-            log_path = logs_dir / "package_traffic_generator.log"
-            build_futures.append(
-                executor.submit(package_traffic_generator, traffic_gen_dir, root_dir / "traffic_generator_source", project_id, region, log_path)
-            )
-        else:
-            image_urls["traffic_generator_source_zip"] = "gs://mock/source.zip"
+            traffic_gen_dir = root_dir / "traffic_generator"
+            if traffic_gen_dir.exists():
+                log_path = logs_dir / "package_traffic_generator.log"
+                build_futures.append(
+                    executor.submit(package_traffic_generator, traffic_gen_dir, root_dir / "traffic_generator_source", project_id, region, log_path)
+                )
+            else:
+                image_urls["traffic_generator_source_zip"] = "gs://mock/source.zip"
 
-        print("⏳ Waiting for builds and packaging to complete...")
-        for future in concurrent.futures.as_completed(build_futures):
-            try:
-                result = future.result()
-                if isinstance(result, str) and result.startswith("gs://"):
-                    # Terraform storage_source expects just the object name, not the full gs:// URI
-                    image_urls["traffic_generator_source_zip"] = result.split("/")[-1]
-                elif isinstance(result, str):
-                    print(f"  ✅ Built image for {result}")
-                else:
-                    print(f"  ✅ Parallel task completed")
-            except Exception as e:
-                print(f"  ❌ Task failed: {e}")
-                print("Exiting due to build failure.")
-                sys.exit(1)
+            print("⏳ Waiting for builds and packaging to complete...")
+            for future in concurrent.futures.as_completed(build_futures):
+                try:
+                    result = future.result()
+                    if isinstance(result, str) and result.startswith("gs://"):
+                        # Terraform storage_source expects just the object name, not the full gs:// URI
+                        image_urls["traffic_generator_source_zip"] = result.split("/")[-1]
+                    elif isinstance(result, str):
+                        print(f"  ✅ Built image for {result}")
+                    else:
+                        print(f"  ✅ Parallel task completed")
+                except Exception as e:
+                    print(f"  ❌ Task failed: {e}")
+                    print("Exiting due to build failure.")
+                    sys.exit(1)
+    else:
+        print("\n[Phase 1] ⏭️  Skipping build phase...")
+        image_urls["traffic_generator_source_zip"] = "traffic_generator_source.zip"
 
     # =========================================================================
     # Phase 2: Terraform (provisions Cloud Run, GKE, LBs, Cloud Functions)
     # =========================================================================
-    print("\n[Phase 2] 🏗️  Running Terraform...")
+    if not args.phase or args.phase <= 2:
+        print("\n[Phase 2] 🏗️  Running Terraform...")
 
-    tf_state_bucket = env.get("TF_STATE_BUCKET", f"{project_id}-tf-state")
-    run_command(
-        ["terraform", "init", f"-backend-config=bucket={tf_state_bucket}"],
-        cwd=terraform_dir
-    )
+        tf_state_bucket = env.get("TF_STATE_BUCKET", f"{project_id}-tf-state")
+        run_command(
+            ["terraform", "init", "-upgrade", f"-backend-config=bucket={tf_state_bucket}"],
+            cwd=terraform_dir
+        )
 
-    tf_vars = [
-        "-var", f"project_id={project_id}",
-        "-var", f"region={region}",
-        "-var", f"cluster_name={cluster_name}",
-        "-var", f"custom_domain={custom_domain}",
-    ]
-    for key, value in image_urls.items():
-        tf_vars.extend(["-var", f"{key}={value}"])
+        tf_vars = [
+            "-var", f"project_id={project_id}",
+            "-var", f"region={region}",
+            "-var", f"cluster_name={cluster_name}",
+            "-var", f"custom_domain={custom_domain}",
+        ]
+        for key, value in image_urls.items():
+            tf_vars.extend(["-var", f"{key}={value}"])
 
-    # Automatically handle 'already exists' for SAs
-    ensure_terraform_imports(terraform_dir, project_id, tf_vars)
+        # Automatically handle 'already exists' for SAs
+        ensure_terraform_imports(terraform_dir, project_id, tf_vars)
 
-    print("🚀 Applying Terraform (with parallelism=20)...")
-    run_command(["terraform", "apply", "-auto-approve", "-parallelism=20"] + tf_vars, cwd=terraform_dir)
+        print("🚀 Applying Terraform (with parallelism=20)...")
+        run_command(["terraform", "apply", "-auto-approve", "-parallelism=20"] + tf_vars, cwd=terraform_dir)
 
-    # Read and display service URLs from Terraform outputs
-    service_url_names = ["flight_specialist_url", "weather_specialist_url", "profile_mcp_url",
-                         "hotel_specialist_url", "car_rental_url", "inventory_mcp_url"]
-    service_urls = {}
-    print("\n  Service URLs:")
-    for output_name in service_url_names:
-        url = get_terraform_output(terraform_dir, output_name)
-        if url:
-            service_urls[output_name] = url
-            print(f"    {output_name}: {url}")
+        # Read and display service URLs from Terraform outputs
+        service_url_names = ["flight_specialist_url", "weather_specialist_url", "profile_mcp_url",
+                             "hotel_specialist_url", "car_rental_url", "inventory_mcp_url"]
+        service_urls = {}
+        print("\n  Service URLs:")
+        for output_name in service_url_names:
+            url = get_terraform_output(terraform_dir, output_name)
+            if url:
+                service_urls[output_name] = url
+                print(f"    {output_name}: {url}")
 
-    # Write service URLs for Agent Engine deploy to consume
-    urls_path = root_dir / "terraform_service_urls.json"
-    with open(urls_path, "w") as f:
-        json.dump(service_urls, f, indent=2)
+        # Write service URLs for Agent Engine deploy to consume
+        urls_path = root_dir / "terraform_service_urls.json"
+        with open(urls_path, "w") as f:
+            json.dump(service_urls, f, indent=2)
 
-    if custom_domain:
-        cloud_run_lb_ip = get_terraform_output(terraform_dir, "cloud_run_lb_ip")
-        gke_lb_ip = get_terraform_output(terraform_dir, "gke_lb_ip")
-        print(f"\n  Configure DNS A records:")
-        print(f"    flight-specialist.{custom_domain} -> {cloud_run_lb_ip}")
-        print(f"    weather-specialist.{custom_domain} -> {cloud_run_lb_ip}")
-        print(f"    profile-mcp.{custom_domain}        -> {cloud_run_lb_ip}")
-        print(f"    hotel-specialist.{custom_domain}    -> {gke_lb_ip}")
-        print(f"    car-rental.{custom_domain}          -> {gke_lb_ip}")
-        print(f"    inventory-mcp.{custom_domain}       -> {gke_lb_ip}")
+        if custom_domain:
+            cloud_run_lb_ip = get_terraform_output(terraform_dir, "cloud_run_lb_ip")
+            gke_lb_ip = get_terraform_output(terraform_dir, "gke_lb_ip")
+            print(f"\n  Configure DNS A records:")
+            print(f"    flight-specialist.{custom_domain} -> {cloud_run_lb_ip}")
+            print(f"    weather-specialist.{custom_domain} -> {cloud_run_lb_ip}")
+            print(f"    profile-mcp.{custom_domain}        -> {cloud_run_lb_ip}")
+            print(f"    hotel-specialist.{custom_domain}    -> {gke_lb_ip}")
+            print(f"    car-rental.{custom_domain}          -> {gke_lb_ip}")
+            print(f"    inventory-mcp.{custom_domain}       -> {gke_lb_ip}")
 
     # =========================================================================
     # Phase 3: Agent Engine (runs AFTER Terraform so URLs are known)
     # =========================================================================
-    print("\n[Phase 3] Deploying Agent Engine...")
+    if not args.phase or args.phase <= 3:
+        print("\n[Phase 3] Deploying Agent Engine...")
 
-    log_path = logs_dir / "deploy_agent_engine.log"
-    agent_outputs = deploy_agent_engine_task(root_dir, project_id, region, custom_domain, log_path)
+        log_path = logs_dir / "deploy_agent_engine.log"
+        agent_outputs = deploy_agent_engine_task(root_dir, project_id, region, custom_domain, log_path)
 
-    # The Agent Engine resource names can be used to construct the HTTP endpoint URLs
-    # Format: projects/{project}/locations/{location}/reasoningEngines/{id}
-    # The actual invocation URLs depend on Agent Engine API surface
-    root_router_resource = agent_outputs.get("RootRouter", "")
-    booking_resource = agent_outputs.get("BookingOrchestrator", "")
+        # The Agent Engine resource names can be used to construct the HTTP endpoint URLs
+        # Format: projects/{project}/locations/{location}/reasoningEngines/{id}
+        # The actual invocation URLs depend on Agent Engine API surface
+        root_router_resource = agent_outputs.get("RootRouter", "")
+        booking_resource = agent_outputs.get("BookingOrchestrator", "")
 
-    if root_router_resource:
-        print(f"  RootRouter resource: {root_router_resource}")
-    if booking_resource:
-        print(f"  BookingOrchestrator resource: {booking_resource}")
-
-    # =========================================================================
-    # Phase 4: Re-apply Terraform with Agent Engine URLs
-    # =========================================================================
-    if root_router_resource or booking_resource:
-        print("\n[Phase 4] Re-applying Terraform with Agent Engine URLs...")
-
-        tf_vars_phase4 = tf_vars.copy()
         if root_router_resource:
-            tf_vars_phase4.extend(["-var", f"root_router_url={root_router_resource}"])
+            print(f"  RootRouter resource: {root_router_resource}")
         if booking_resource:
-            tf_vars_phase4.extend(["-var", f"booking_orchestrator_url={booking_resource}"])
+            print(f"  BookingOrchestrator resource: {booking_resource}")
 
-        run_command(
-            ["terraform", "apply", "-auto-approve", "-parallelism=20"] + tf_vars_phase4,
-            cwd=terraform_dir
-        )
-        print("  Terraform re-applied with Agent Engine URLs.")
-    else:
-        print("\n  ⚠️  Warning: No Agent Engine URLs captured. Traffic generator and WeatherSpecialist")
-        print("  will not have Agent Engine URLs configured. Re-run with --root_router_url manually.")
+        # =========================================================================
+        # Phase 4: Re-apply Terraform with Agent Engine URLs
+        # =========================================================================
+        if root_router_resource or booking_resource:
+            print("\n[Phase 4] Re-applying Terraform with Agent Engine URLs...")
+
+            # Note: We need tf_vars here. If we skipped Phase 2, we need to reconstruct it.
+            # For simplicity, we assume if we are running Phase 3 or 4, we have the variables or we just ran Phase 2.
+            # Reconstruct tf_vars if needed
+            registry_prefix = f"gcr.io/{project_id}"
+            components = {
+                "flight-specialist": "agents/FlightSpecialist",
+                "weather-specialist": "agents/WeatherSpecialist",
+                "hotel-specialist": "agents/HotelSpecialist",
+                "car-rental-specialist": "agents/CarRentalSpecialist",
+                "profile-mcp": "mcp_servers/Profile_MCP",
+                "inventory-mcp": "mcp_servers/Inventory_MCP",
+            }
+            image_urls = {}
+            for name in components:
+                image_urls[name.replace("-", "_") + "_image"] = f"{registry_prefix}/{name}:latest"
+            image_urls["traffic_generator_source_zip"] = "traffic_generator_source.zip"
+
+            tf_vars = [
+                "-var", f"project_id={project_id}",
+                "-var", f"region={region}",
+                "-var", f"cluster_name={cluster_name}",
+                "-var", f"custom_domain={custom_domain}",
+            ]
+            for key, value in image_urls.items():
+                tf_vars.extend(["-var", f"{key}={value}"])
+
+            tf_vars_phase4 = tf_vars.copy()
+            if root_router_resource:
+                tf_vars_phase4.extend(["-var", f"root_router_url={root_router_resource}"])
+            if booking_resource:
+                tf_vars_phase4.extend(["-var", f"booking_orchestrator_url={booking_resource}"])
+
+            run_command(
+                ["terraform", "apply", "-auto-approve", "-parallelism=20"] + tf_vars_phase4,
+                cwd=terraform_dir
+            )
+            print("  Terraform re-applied with Agent Engine URLs.")
+        else:
+            print("\n  ⚠️  Warning: No Agent Engine URLs captured. Traffic generator and WeatherSpecialist")
+            print("  will not have Agent Engine URLs configured. Re-run with --root_router_url manually.")
 
     print("\n✅ Deployment Complete!")
 
