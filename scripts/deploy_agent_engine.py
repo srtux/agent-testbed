@@ -31,7 +31,7 @@ flags.mark_bool_flags_as_mutual_exclusive(["create", "delete", "list"])
 
 def create_agent(agent_obj) -> None:
     """Creates an agent engine for the given agent."""
-    adk_app = AdkApp(agent=agent_obj, enable_tracing=True)
+    adk_app = AdkApp(agent=agent_obj)
 
     # Core dependencies needed for Testbed ADK agents
     requirements = [
@@ -39,8 +39,12 @@ def create_agent(agent_obj) -> None:
         "google-adk>=1.26.0",
         "mcp>=1.26.0",
         "opentelemetry-api>=1.38.0",
-        "opentelemetry-exporter-gcp-trace>=1.11.0",
+        "opentelemetry-exporter-gcp-logging",
+        "opentelemetry-exporter-gcp-monitoring",
+        "opentelemetry-exporter-otlp-proto-grpc",
         "opentelemetry-instrumentation-fastapi>=0.59b0",
+        "opentelemetry-instrumentation-google-genai>=0.7b0",
+        "opentelemetry-instrumentation-vertexai>=2.0b0",
         "opentelemetry-sdk>=1.38.0",
         "uvicorn>=0.41.0",
         "pydantic>=2.10.6,<3.0.0",
@@ -65,6 +69,7 @@ def create_agent(agent_obj) -> None:
             "GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY": "true",
             "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT": "true",
             "OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED": "true",
+            "ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS": "false",
             "LOG_FORMAT": "JSON",
             "LOG_LEVEL": "INFO",
             "RUNNING_IN_AGENT_ENGINE": "true"
