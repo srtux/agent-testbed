@@ -44,7 +44,10 @@ MANIFEST
 # Terraform
 .terraform/
 *.tfstate
+*.tfstate.*
 *.tfstate.backup
+.terraform.tfstate
+.terraform.tfstate.lock.info
 .terraform.lock.hcl
 *.tfvars
 *.tfvars.json

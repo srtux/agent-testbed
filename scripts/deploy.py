@@ -126,6 +126,41 @@ def deploy_agent_engine_task(root_dir, project_id, region, log_path):
         run_command(agent_deploy_command, cwd=root_dir, log_file=f)
     return True
 
+def ensure_terraform_imports(terraform_dir, project_id, log_file=None):
+    """Checks for already existing resources and imports them into state."""
+    msg = "🔍 Checking for existing resources to import into Terraform state..."
+    if log_file: log_file.write(f"{msg}\n")
+    print(msg)
+    
+    # Get current state list
+    try:
+        result = subprocess.run(["terraform", "state", "list"], cwd=terraform_dir, capture_output=True, text=True)
+        state_list = result.stdout.splitlines() if result.returncode == 0 else []
+    except Exception:
+        state_list = []
+    
+    # Known fixed-name resources that often cause 409 errors
+    sas = {
+        "google_service_account.flight_specialist": "flight-specialist",
+        "google_service_account.weather_specialist": "weather-specialist",
+        "google_service_account.profile_mcp": "profile-mcp",
+        "google_service_account.test_runner": "travel-test-runner",
+        "google_service_account.inventory_mcp_gsa": "inventory-mcp-gsa",
+    }
+    
+    for tf_name, sa_id in sas.items():
+        if tf_name not in state_list:
+            sa_email = f"{sa_id}@{project_id}.iam.gserviceaccount.com"
+            # Using full resource ID for import
+            full_id = f"projects/{project_id}/serviceAccounts/{sa_email}"
+            
+            # check if exists in GCP
+            check = subprocess.run(["gcloud", "iam", "service-accounts", "describe", sa_email, "--project", project_id], capture_output=True)
+            if check.returncode == 0:
+                print(f"  📥 Importing {tf_name} ({sa_email})...")
+                # We don't want to fail if import fails (e.g. if it's already in state but we missed it)
+                subprocess.run(["terraform", "import", tf_name, full_id], cwd=terraform_dir, capture_output=True)
+
 def main():
     """Builds images, packages resources, and deploys using Terraform in parallel."""
     root_dir = Path(__file__).parent.parent.absolute()
@@ -142,10 +177,10 @@ def main():
                 if "=" in line and not line.strip().startswith("#"):
                     key, value = line.strip().split("=", 1)
                     env[key] = value
-
+                
     project_id = env.get("PROJECT_ID", env.get("GOOGLE_CLOUD_PROJECT"))
     region = env.get("REGION", env.get("GOOGLE_CLOUD_LOCATION", "us-central1"))
-    cluster_name = env.get("CLUSTER_NAME", "default-cluster")
+    cluster_name = env.get("CLUSTER_NAME", "summitt-cluster") # Using specific cluster name if found
 
     if not project_id:
         print("❌ Error: PROJECT_ID or GOOGLE_CLOUD_PROJECT must be set in .env")
@@ -222,6 +257,9 @@ def main():
     print("\n🏗️  Proceeding to Terraform...")
     
     run_command(["terraform", "init"], cwd=terraform_dir)
+    
+    # Automatically handle 'already exists' for SAs
+    ensure_terraform_imports(terraform_dir, project_id)
     
     tf_vars = [
         "-var", f"project_id={project_id}",

@@ -12,8 +12,6 @@ import sys
 import logging
 import json
 import httpx
-
-import httpx
 from fastapi import FastAPI
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from pydantic import BaseModel, Field

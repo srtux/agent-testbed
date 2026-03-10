@@ -8,6 +8,7 @@ project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
 
 import vertexai
+import shutil
 from absl import app, flags
 from dotenv import load_dotenv
 from vertexai import agent_engines
@@ -41,36 +42,50 @@ def create_agent(agent_obj) -> None:
         "opentelemetry-api>=1.38.0",
         "opentelemetry-exporter-gcp-trace>=1.11.0",
         "opentelemetry-instrumentation-fastapi>=0.59b0",
+        "opentelemetry-instrumentation-google-genai>=0.7b0",
+        "opentelemetry-instrumentation-httpx>=0.59b0",
+        "opentelemetry-instrumentation-requests>=0.59b0",
         "opentelemetry-sdk>=1.38.0",
         "uvicorn>=0.41.0",
         "pydantic>=2.10.6,<3.0.0",
         "google-cloud-aiplatform[adk,agent-engines]>=1.93.0",
         "google-genai>=1.5.0",
-        "httpx>=0.28.0"
+        "httpx>=0.28.0",
+        "requests>=2.32.0"
     ]
     
-    # We pass the shared 'testbed_utils' directory so the remote engine has access to it.
-    testbed_utils_dir = os.path.join(project_root, "testbed_utils")
+    # We create a temporary staging directory to package 'agents' and 'testbed_utils' 
+    # as top-level packages for the remote engine.
+    staging_dir = os.path.join(project_root, f"staging_{agent_obj.name}")
+    if os.path.exists(staging_dir):
+        shutil.rmtree(staging_dir)
+    os.makedirs(staging_dir)
+    shutil.copytree(os.path.join(project_root, "agents"), os.path.join(staging_dir, "agents"), dirs_exist_ok=True)
+    shutil.copytree(os.path.join(project_root, "testbed_utils"), os.path.join(staging_dir, "testbed_utils"), dirs_exist_ok=True)
     
     # Optionally, we can inject env vars (e.g. downstream agent URLs) if needed downstream
     # For now, it relies on standard env vars at runtime.
     
     print(f"Deploying {agent_obj.name}...")
-    remote_agent = agent_engines.create(
-        adk_app,
-        display_name=agent_obj.name,
-        requirements=requirements,
-        extra_packages=[testbed_utils_dir],
-        env_vars={
-            "GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY": "true",
-            "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT": "true",
-            "OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED": "true",
-            "LOG_FORMAT": "JSON",
-            "LOG_LEVEL": "INFO",
-            "RUNNING_IN_AGENT_ENGINE": "true"
-        }
-    )
-    print(f"Created remote agent {agent_obj.name}: {remote_agent.resource_name}")
+    try:
+        remote_agent = agent_engines.create(
+            adk_app,
+            display_name=agent_obj.name,
+            requirements=requirements,
+            extra_packages=[staging_dir],
+            env_vars={
+                "GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY": "true",
+                "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT": "true",
+                "OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED": "true",
+                "LOG_FORMAT": "JSON",
+                "LOG_LEVEL": "INFO",
+                "RUNNING_IN_AGENT_ENGINE": "true"
+            }
+        )
+        print(f"Created remote agent {agent_obj.name}: {remote_agent.resource_name}")
+    finally:
+        if os.path.exists(staging_dir):
+            shutil.rmtree(staging_dir)
     print()
 
 
