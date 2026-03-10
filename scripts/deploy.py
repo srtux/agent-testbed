@@ -126,7 +126,7 @@ def deploy_agent_engine_task(root_dir, project_id, region, log_path):
         run_command(agent_deploy_command, cwd=root_dir, log_file=f)
     return True
 
-def ensure_terraform_imports(terraform_dir, project_id, log_file=None):
+def ensure_terraform_imports(terraform_dir, project_id, tf_vars, log_file=None):
     """Checks for already existing resources and imports them into state."""
     msg = "🔍 Checking for existing resources to import into Terraform state..."
     if log_file: log_file.write(f"{msg}\n")
@@ -159,7 +159,7 @@ def ensure_terraform_imports(terraform_dir, project_id, log_file=None):
             if check.returncode == 0:
                 print(f"  📥 Importing {tf_name} ({sa_email})...")
                 # We don't want to fail if import fails (e.g. if it's already in state but we missed it)
-                subprocess.run(["terraform", "import", tf_name, full_id], cwd=terraform_dir, capture_output=True)
+                subprocess.run(["terraform", "import"] + tf_vars + [tf_name, full_id], cwd=terraform_dir, capture_output=True)
 
 def main():
     """Builds images, packages resources, and deploys using Terraform in parallel."""
@@ -258,9 +258,6 @@ def main():
     
     run_command(["terraform", "init"], cwd=terraform_dir)
     
-    # Automatically handle 'already exists' for SAs
-    ensure_terraform_imports(terraform_dir, project_id)
-    
     tf_vars = [
         "-var", f"project_id={project_id}",
         "-var", f"region={region}",
@@ -268,6 +265,9 @@ def main():
     ]
     for key, value in image_urls.items():
         tf_vars.extend(["-var", f"{key}={value}"])
+
+    # Automatically handle 'already exists' for SAs
+    ensure_terraform_imports(terraform_dir, project_id, tf_vars)
 
     print("🚀 Applying Terraform (with parallelism=20)...")
     run_command(["terraform", "apply", "-auto-approve", "-parallelism=20"] + tf_vars, cwd=terraform_dir)
