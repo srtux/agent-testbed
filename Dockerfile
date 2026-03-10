@@ -10,9 +10,7 @@ WORKDIR /app
 COPY . .
 
 # Sync the project (installs all dependencies including workspace members)
-# We use --index-url to ensure we can reach PyPI if the lockfile has internal mirrors that fail in Cloud Build
-RUN uv pip install --system keyrings.google-artifactregistry-auth && \
-    rm -f uv.lock && uv sync --no-dev --no-editable --index-url https://pypi.org/simple
+RUN uv pip install --system keyrings.google-artifactregistry-auth && rm -f uv.lock && uv sync --no-dev --no-editable --index-url https://pypi.org/simple
 
 # Final image
 FROM python:3.12-slim-bookworm
@@ -30,4 +28,4 @@ ENV PATH="/app/.venv/bin:$PATH"
 ENV OTEL_SEMCONV_STABILITY_OPT_IN=gen_ai_latest_experimental
 
 # The CMD should point to the entrypoint of the specific service
-CMD ["uvicorn", "agents.FlightSpecialist.main:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["uvicorn", "agents.WeatherSpecialist.main:app", "--host", "0.0.0.0", "--port", "8080"]
