@@ -1,15 +1,12 @@
-# main.py MUST come before other imports for OTel patching
-# ruff: noqa: E402
-from testbed_utils.telemetry import setup_telemetry
-from testbed_utils.logging import setup_logging
-from testbed_utils.config import DEFAULT_PRO_MODEL, DEFAULT_FLASH_MODEL
-
-setup_telemetry()
-logger = setup_logging()
-
 import os
 import re
 import json
+import logging
+
+from testbed_utils.config import DEFAULT_PRO_MODEL, DEFAULT_FLASH_MODEL
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 import httpx
 from fastapi import FastAPI
@@ -18,7 +15,6 @@ from google.adk.agents import LlmAgent
 from google.adk.runners import InMemoryRunner
 from google.adk.tools.agent_tool import AgentTool
 from google.genai import types
-from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
 from mcp.client.sse import sse_client
 from mcp.client.session import ClientSession
@@ -85,7 +81,6 @@ class FlightRequest(BaseModel):
 
 async def consult_flight_specialist(request: FlightRequest) -> dict:
     """Delegates the flight booking task to the FlightSpecialist sub-agent."""
-    # This URL would typically come from environment variables
     flight_specialist_url = os.environ.get("FLIGHT_SPECIALIST_URL", "http://localhost:8082/chat")
     profile_mcp_url = os.environ.get("PROFILE_MCP_URL", "http://localhost:8090/sse")
 
@@ -129,7 +124,6 @@ async def consult_flight_specialist(request: FlightRequest) -> dict:
 
     # Trace edge: AE -> CR
     async with httpx.AsyncClient() as client:
-        # In a real environment, we would obtain an OIDC token here for auth
         response = await client.post(
             flight_specialist_url,
             json=request_dict,
@@ -142,6 +136,10 @@ async def consult_flight_specialist(request: FlightRequest) -> dict:
 
 
 # --- Agent Definition ---
+# When deployed to Agent Engine, the platform serializes `agent` via AdkApp(agent=agent).
+# Agent Engine provides its own TracerProvider and telemetry pipeline via
+# GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY env var — do NOT call setup_telemetry()
+# or FastAPIInstrumentor at module level as it conflicts with the platform's instrumentation.
 
 agent = LlmAgent(
     name="RootRouter",
@@ -156,11 +154,11 @@ agent = LlmAgent(
     tools=[extract_travel_intent, AgentTool(agent=intent_classifier), consult_flight_specialist],
 )
 
-# For Vertex AI Agent Engine, you typically don't need to wrap in FastAPI if using the platform's native endpoints.
+# FastAPI wrapper for local development and A2A HTTP simulation.
+# In Agent Engine, the platform uses AdkApp(agent=agent) directly — this is not used.
 runner = InMemoryRunner(agent=agent)
 runner.auto_create_session = True
 app = FastAPI()
-FastAPIInstrumentor.instrument_app(app)
 
 class RouterRequest(BaseModel):
     user_id: str

@@ -1,14 +1,11 @@
-# main.py MUST come before other imports for OTel patching
-# ruff: noqa: E402
-from testbed_utils.telemetry import setup_telemetry
-from testbed_utils.logging import setup_logging
-from testbed_utils.config import DEFAULT_PRO_MODEL, DEFAULT_FLASH_MODEL
-
-setup_telemetry()
-logger = setup_logging()
-
 import os
 import json
+import logging
+
+from testbed_utils.config import DEFAULT_PRO_MODEL, DEFAULT_FLASH_MODEL
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 import httpx
 from pydantic import BaseModel, Field
@@ -17,7 +14,6 @@ from google.adk.agents import LlmAgent
 from google.adk.runners import InMemoryRunner
 from google.adk.tools.agent_tool import AgentTool
 from fastapi import FastAPI
-from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
 from mcp.client.sse import sse_client
 from mcp.client.session import ClientSession
@@ -115,6 +111,13 @@ async def finalize_bookings(request: BookingRequest) -> dict:
 
     return {"status": "success", "confirmation": "CNF-12345"}
 
+
+# --- Agent Definition ---
+# When deployed to Agent Engine, the platform serializes `agent` via AdkApp(agent=agent).
+# Agent Engine provides its own TracerProvider and telemetry pipeline via
+# GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY env var — do NOT call setup_telemetry()
+# or FastAPIInstrumentor at module level as it conflicts with the platform's instrumentation.
+
 agent = LlmAgent(
     name="BookingOrchestrator",
     model=DEFAULT_PRO_MODEL,
@@ -127,12 +130,11 @@ agent = LlmAgent(
     tools=[calculate_trip_cost, format_itinerary, AgentTool(agent=itinerary_validator), finalize_bookings],
 )
 
-# For Vertex AI Agent Engine, we expose `agent`.
-# If we want to simulate an A2A HTTP endpoint natively, we wrap it in FastAPI.
+# FastAPI wrapper for local development and A2A HTTP simulation.
+# In Agent Engine, the platform uses AdkApp(agent=agent) directly — this is not used.
 runner = InMemoryRunner(agent=agent)
 runner.auto_create_session = True
 app = FastAPI()
-FastAPIInstrumentor.instrument_app(app)
 
 
 class OrchestrationRequest(BaseModel):
