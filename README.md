@@ -124,12 +124,52 @@ flowchart LR
     Root -. "Complete Plan" .-> User
 ```
 
+## Tool & Interaction Taxonomy
+
+A key design goal of this testbed is to exercise **every type of tool and agent interaction** that can appear in a production system, so that traces contain a representative mix of span patterns. The following table summarizes the interaction types and their tracing characteristics:
+
+| Interaction Type | Network Hop | Span Pattern | Example in Testbed |
+| :--- | :--- | :--- | :--- |
+| **A2A HTTP delegation** | Yes (HTTP) | HTTP client → HTTP server → `gen_ai.agent` | RootRouter → FlightSpecialist |
+| **MCP SSE tool call** | Yes (SSE) | MCP client → SSE transport → `mcp.tool_call.*` | HotelSpecialist → Inventory_MCP |
+| **Local Python tool** | No | `gen_ai.tool` (in-process) | FlightSpecialist `check_flight_availability` |
+| **In-process sub-agent** | No | Parent `gen_ai.agent` → child `gen_ai.agent` | BookingOrchestrator → ItineraryValidator (sub-agent) |
+| **ADK built-in tool** | Varies | Platform-specific spans | `google_search` for destination info |
+
+### Local Tools (In-Process)
+
+Not every tool call should cross a network boundary. Local Python function tools produce `gen_ai.tool` spans entirely within the agent's process. These are critical for tracing because they show:
+- The contrast between **in-process tool latency** (microseconds) vs **network tool latency** (milliseconds)
+- How the LLM's tool-call loop interleaves local and remote operations
+- That the OpenTelemetry GenAI instrumentation captures tool inputs/outputs regardless of whether a network hop occurred
+
+Examples of local tools in this testbed:
+- `check_flight_availability` — mock flight database lookup (FlightSpecialist)
+- `validate_dates` — date range parsing and validation (FlightSpecialist)
+- `calculate_trip_cost` — price aggregation across flight, hotel, and car (BookingOrchestrator)
+
+### In-Process Sub-Agents
+
+ADK's `sub_agents=[]` parameter allows nesting agents that run in the same process and share the same `InMemoryRunner`. These produce parent-child `gen_ai.agent` spans **without any HTTP call**, which is fundamentally different from A2A delegation. This is important for tracing because:
+- It tests that the instrumentation correctly parents spans within a single process
+- It shows how agent-to-agent delegation looks when there is no network boundary to propagate `traceparent` across
+- It demonstrates the ADK transfer-of-control pattern (where the parent agent yields to a sub-agent and resumes when it completes)
+
+### Why This Matters for Tracing
+
+A testbed that only exercises network-boundary interactions (A2A + MCP) will only validate `traceparent` header propagation. By including local tools and in-process sub-agents, this testbed also validates:
+1. **In-process context propagation** — OpenTelemetry's context API within a single service
+2. **Span hierarchy correctness** — that child spans are properly parented without relying on HTTP header extraction
+3. **Mixed-latency waterfalls** — traces that show both sub-millisecond local operations and multi-second network calls, which is what real production traces look like
+
 ## OpenTelemetry Tracing
 
 A core focus of this testbed is robust distributed tracing using OpenTelemetry. All components enforce the latest GenAI semantic conventions (`OTEL_SEMCONV_STABILITY_OPT_IN=gen_ai_latest_experimental`) and propagate W3C `traceparent` headers to trace execution across environments.
 
 - **ADK Agents**: Use `GoogleGenAiSdkInstrumentor` for prompt/response visibility. Outbound HTTP calls (e.g., to sub-agents) inject trace headers via `HTTPXClientInstrumentor`.
 - **FastAPI / MCP Services**: Use `FastAPIInstrumentor` to extract incoming trace headers and bind them to the local execution context. Custom spans (e.g., `mcp.tool_call.*`) provide high-fidelity insights into MCP interactions.
+- **Local Tools**: Captured by the GenAI instrumentor as `gen_ai.tool` spans. No additional instrumentation is needed — the ADK runner handles span creation automatically.
+- **In-Process Sub-Agents**: The ADK runner creates nested `gen_ai.agent` spans for sub-agents, maintaining correct parent-child relationships within the same trace context.
 
 ### Traffic Generator
 
@@ -330,3 +370,126 @@ sequenceDiagram
     RootRouter-->>TrafficGen: returns complete orchestration
     deactivate RootRouter
 ```
+
+## Recommendations & Roadmap
+
+The following enhancements would make this testbed a comprehensive reference implementation for tracing distributed AI agent systems.
+
+### 1. Add Local Tools with Real Compute
+
+Currently `check_flight_availability` returns a hardcoded dict. Replace mock returns with lightweight but real computation that produces meaningful span durations and attributes:
+
+```python
+# Instead of:
+async def check_flight_availability(...) -> dict:
+    return {"status": "available", "cost": 450}
+
+# Do:
+async def check_flight_availability(user_id: str, destination: str, dates: str) -> dict:
+    """Check flight availability with date validation and fare calculation."""
+    parsed_start, parsed_end = parse_travel_dates(dates)  # Can fail — interesting error spans
+    days = (parsed_end - parsed_start).days
+    base_fare = FARE_TABLE.get(destination, 400)
+    total = base_fare + (days * 15)  # Per-diem surcharge
+    return {"status": "available", "cost": total, "airline": "CloudAir", "days": days}
+```
+
+Recommended local tools to add:
+
+| Agent | Tool | Purpose |
+| :--- | :--- | :--- |
+| FlightSpecialist | `validate_dates` | Parse and validate date ranges, reject past dates |
+| FlightSpecialist | `calculate_fare` | Compute fare based on route, dates, loyalty tier |
+| BookingOrchestrator | `calculate_trip_cost` | Aggregate costs from flight + hotel + car |
+| BookingOrchestrator | `format_itinerary` | Build a structured itinerary document from components |
+| RootRouter | `extract_travel_intent` | Parse natural language into structured fields (destination, dates, preferences) |
+
+### 2. Add In-Process Sub-Agents via ADK `sub_agents`
+
+Use ADK's native sub-agent pattern to show in-process agent delegation. This produces `gen_ai.agent` child spans without HTTP:
+
+```python
+from google.adk.agents import LlmAgent
+
+# A lightweight validation sub-agent that runs in-process
+itinerary_validator = LlmAgent(
+    name="ItineraryValidator",
+    model=DEFAULT_FLASH_MODEL,
+    static_instruction="""You validate travel itineraries for completeness.
+    Check that all required fields are present: flight, hotel, car rental, dates,
+    and total cost. Flag any missing or inconsistent information.""",
+    tools=[validate_itinerary_structure],  # local tool
+)
+
+# Parent agent with both remote tools AND local sub-agents
+booking_orchestrator = LlmAgent(
+    name="BookingOrchestrator",
+    model=DEFAULT_PRO_MODEL,
+    static_instruction="...",
+    tools=[commit_booking, calculate_trip_cost],
+    sub_agents=[itinerary_validator],  # In-process, no HTTP
+)
+```
+
+Recommended sub-agents:
+
+| Parent Agent | Sub-Agent | Purpose |
+| :--- | :--- | :--- |
+| BookingOrchestrator | `ItineraryValidator` | Validates completeness before committing |
+| RootRouter | `IntentClassifier` | Classifies user request type (booking, inquiry, modification) |
+| FlightSpecialist | `SeatSelector` | Picks optimal seat based on user preferences |
+
+### 3. Add Error and Retry Spans
+
+Real traces contain errors. Add deliberate failure modes:
+- **Transient failures**: Inventory_MCP randomly returns 503 ~10% of the time, triggering retry spans
+- **Validation errors**: `validate_dates` rejects invalid date ranges, producing error spans with `otel.status_code=ERROR`
+- **Timeout spans**: Add a slow tool that occasionally exceeds its deadline, showing timeout handling in traces
+- **Partial failures**: HotelSpecialist succeeds but CarRentalSpecialist fails, showing how the orchestrator handles mixed results
+
+### 4. Add Parallel Tool Execution
+
+Currently all tool calls are sequential. ADK supports parallel tool calling when the LLM requests multiple tools simultaneously. Add a scenario where this naturally occurs:
+- FlightSpecialist checks availability on **multiple airlines** in parallel
+- RootRouter fetches profile AND checks flight availability concurrently
+
+This produces **fan-out/fan-in** patterns in traces — multiple child spans running concurrently under one parent — which are critical to validate that the trace viewer renders correctly.
+
+### 5. Add Custom Span Attributes and Events
+
+Enrich spans with domain-specific attributes for better trace filtering and analysis:
+
+```python
+from opentelemetry import trace
+
+span = trace.get_current_span()
+span.set_attribute("travel.destination", "SFO")
+span.set_attribute("travel.user_tier", "Gold")
+span.set_attribute("travel.booking_value_usd", 1250.00)
+span.add_event("loyalty_discount_applied", {"discount_pct": 15})
+```
+
+### 6. Add a Trace Validation Suite
+
+Go beyond integration tests — add tests that inspect the actual trace structure:
+- Assert that a complete waterfall produces exactly N spans
+- Assert parent-child relationships are correct (e.g., FlightSpecialist span is a child of RootRouter span)
+- Assert that `traceparent` trace IDs are consistent across all services
+- Assert that local tool spans appear as children of their agent span (not as siblings)
+- Assert that error spans have correct `otel.status_code` and `otel.status_description`
+
+### 7. Add Streaming / Multi-Turn Traces
+
+The current testbed is single-turn: one request in, one response out. Real agents often:
+- **Stream responses** token-by-token (SSE), producing `gen_ai.content.completion` spans
+- **Multi-turn conversations** where the agent asks the user for clarification, producing multiple `gen_ai.chat` spans under one session
+
+Adding a multi-turn scenario (e.g., "the user didn't specify dates, so the agent asks") would exercise session-level tracing.
+
+### 8. Add Metrics and Exemplars
+
+OpenTelemetry isn't just traces. Add metrics that link back to traces via exemplars:
+- `gen_ai.client.token.usage` — token counts per agent per request
+- `travel.booking.latency` — end-to-end booking duration histogram
+- `travel.booking.cost` — booking value distribution
+- Link each metric data point to the trace that produced it via exemplars
