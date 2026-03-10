@@ -6,9 +6,8 @@ from testbed_utils.config import DEFAULT_PRO_MODEL
 
 setup_telemetry()
 logger = setup_logging()
+
 import os
-import sys
-import logging
 import json
 
 import httpx
@@ -17,7 +16,7 @@ from google.genai import types
 from google.adk.agents import LlmAgent
 from google.adk.runners import InMemoryRunner
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 
 from mcp.client.sse import sse_client
 from mcp.client.session import ClientSession
@@ -112,4 +111,4 @@ async def chat_endpoint(request: OrchestrationRequest):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8080)
+    uvicorn.run(app, host="0.0.0.0", port=8081)
