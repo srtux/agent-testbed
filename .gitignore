@@ -39,7 +39,7 @@ MANIFEST
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
-/Dockerfile
+/Dockerfile*
 
 # Terraform
 .terraform/
@@ -48,3 +48,7 @@ MANIFEST
 .terraform.lock.hcl
 *.tfvars
 *.tfvars.json
+
+# Tool generated files
+logs/
+*.zip

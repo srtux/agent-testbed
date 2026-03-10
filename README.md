@@ -205,6 +205,17 @@ uv run deploy
 
 If you prefer to run terraform manually, see the example `terraform.tfvars.example` for the required image reference variables and run `terraform apply` directly in the `terraform/` directory.
 
+### Parallelized Deployment & Logging
+
+The `uv run deploy` command uses a sophisticated orchestration system to minimize deployment time and provide detailed observability:
+
+- **Parallel Execution**: Docker builds, package creation, and Vertex AI Agent Engine deployments are executed concurrently using `ThreadPoolExecutor`.
+- **Terraform Optimization**: Terraform is executed with `-parallelism=20` to accelerate the provisioning of cloud resources.
+- **Isolated Logging**: Each deployment task redirects its output to a separate log file in `logs/deploy/`. This allows you to monitor specific component builds (e.g., `build_flight-specialist.log`) or infrastructure tasks (e.g., `deploy_agent_engine.log`) without console clutter.
+
+> [!TIP]
+> If a specific component fails to build or deploy, check its corresponding log file in the `logs/deploy/` directory for the full stack trace and error message.
+
 ## Trace Architecture
 
 The testbed exercises the following OpenTelemetry W3C trace propagation paths across Google Cloud:

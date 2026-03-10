@@ -2,30 +2,137 @@ import os
 import sys
 import subprocess
 import shutil
+import concurrent.futures
 from pathlib import Path
+from datetime import datetime
 
-def run_command(command, cwd=None, env=None, check=True):
-    """Runs a shell command and returns the output."""
-    print(f"Executing: {' '.join(command)} in {cwd or os.getcwd()}")
+def run_command(command, cwd=None, env=None, check=True, log_file=None):
+    """Runs a shell command and returns the result."""
+    cwd_str = str(cwd) if cwd else os.getcwd()
+    cmd_str = " ".join(command)
+    
+    if log_file:
+        log_file.write(f"[{datetime.now().isoformat()}] Executing: {cmd_str} in {cwd_str}\n")
+        log_file.flush()
+    else:
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] Executing: {cmd_str}")
+
     try:
-        return subprocess.run(
-            command,
-            cwd=cwd,
-            env=env or os.environ.copy(),
-            check=check,
-            capture_output=False,
-            text=True
-        )
+        if log_file:
+            return subprocess.run(
+                command,
+                cwd=cwd,
+                env=env or os.environ.copy(),
+                check=check,
+                stdout=log_file,
+                stderr=subprocess.STDOUT,
+                text=True
+            )
+        else:
+            return subprocess.run(
+                command,
+                cwd=cwd,
+                env=env or os.environ.copy(),
+                check=check,
+                text=True
+            )
     except subprocess.CalledProcessError as e:
-        print(f"❌ Error executing command: {e}")
+        msg = f"❌ Error executing command: {cmd_str}\nReturn code: {e.returncode}"
+        if log_file:
+            log_file.write(f"[{datetime.now().isoformat()}] {msg}\n")
+            log_file.flush()
+        else:
+            print(msg)
         if check:
-            sys.exit(1)
+            raise e
         return None
 
+def build_docker_image(name, path, image_url, root_dir, use_docker, log_path):
+    """Worker function for building a single Docker image."""
+    full_path = root_dir / path
+    with open(log_path, "w") as f:
+        dockerfile_path = full_path / "Dockerfile"
+        if not dockerfile_path.exists():
+            f.write(f"Error: Dockerfile not found at {dockerfile_path}\n")
+            raise FileNotFoundError(f"Dockerfile not found for {name}")
+
+        if use_docker:
+            f.write(f"Building {name} with docker (from project root)...\n")
+            run_command([
+                "docker", "build", 
+                "-t", image_url, 
+                "-f", str(dockerfile_path),
+                "."
+            ], cwd=root_dir, log_file=f)
+            f.write(f"Pushing {name}...\n")
+            run_command(["docker", "push", image_url], log_file=f)
+        else:
+            f.write(f"Building {name} with gcloud builds submit (from project root)...\n")
+            # Build from root context to handle uv workspace dependencies correctly
+            temp_dockerfile = root_dir / f"Dockerfile.{name}"
+            shutil.copy2(dockerfile_path, temp_dockerfile)
+            try:
+                run_command([
+                    "gcloud", "builds", "submit", 
+                    "--tag", image_url, 
+                    "--dockerfile", str(temp_dockerfile), # gcloud supports --dockerfile now usually
+                    "."
+                ], cwd=root_dir, log_file=f)
+            except Exception as e:
+                # Fallback if --dockerfile isn't supported or fails
+                f.write(f"Retrying with direct Dockerfile copy to root...\n")
+                actual_temp = root_dir / "Dockerfile"
+                shutil.copy2(dockerfile_path, actual_temp)
+                try:
+                    run_command([
+                        "gcloud", "builds", "submit", 
+                        "--tag", image_url, 
+                        "."
+                    ], cwd=root_dir, log_file=f)
+                finally:
+                    if actual_temp.exists(): os.remove(actual_temp)
+                raise e
+            finally:
+                if temp_dockerfile.exists():
+                    os.remove(temp_dockerfile)
+    return name
+
+def package_traffic_generator(traffic_gen_dir, zip_path_base, project_id, region, log_path):
+    """Worker function for packaging and uploading traffic generator."""
+    with open(log_path, "w") as f:
+        f.write(f"Packaging Traffic Generator from {traffic_gen_dir}...\n")
+        shutil.make_archive(str(zip_path_base), "zip", str(traffic_gen_dir))
+        
+        zip_path = Path(f"{zip_path_base}.zip")
+        bucket_name = f"{project_id}-deploy-artifacts"
+        gcs_path = f"gs://{bucket_name}/traffic_generator_source.zip"
+        
+        f.write(f"Creating bucket {bucket_name} if needed...\n")
+        subprocess.run(["gsutil", "mb", "-l", region, f"gs://{bucket_name}"], check=False, stdout=f, stderr=subprocess.STDOUT)
+        
+        f.write(f"Uploading {zip_path} to {gcs_path}...\n")
+        run_command(["gsutil", "cp", str(zip_path), gcs_path], log_file=f)
+    return gcs_path
+
+def deploy_agent_engine_task(root_dir, project_id, region, log_path):
+    """Worker function for deploying Agent Engine."""
+    with open(log_path, "w") as f:
+        f.write("Deploying Agent Engine...\n")
+        agent_deploy_command = [
+            "uv", "run", "deploy-agent-engine", "--create",
+            "--project_id", project_id,
+            "--location", region,
+            "--bucket", f"{project_id}-deploy-artifacts"
+        ]
+        run_command(agent_deploy_command, cwd=root_dir, log_file=f)
+    return True
+
 def main():
-    """Builds images, packages resources, and deploys using Terraform."""
+    """Builds images, packages resources, and deploys using Terraform in parallel."""
     root_dir = Path(__file__).parent.parent.absolute()
     terraform_dir = root_dir / "terraform"
+    logs_dir = root_dir / "logs" / "deploy"
+    logs_dir.mkdir(parents=True, exist_ok=True)
     
     # Load environment variables from .env
     env = os.environ.copy()
@@ -46,13 +153,9 @@ def main():
         sys.exit(1)
 
     print(f"🚀 Deploying to project: {project_id} in region: {region}")
+    print(f"📄 Logs will be written to: {logs_dir}")
 
-    # 1. Build and Push Docker Images
-    # We assume the images are stored in Artifact Registry or GCR
-    # Pattern: gcr.io/PROJECT_ID/IMAGE_NAME or REGION-docker.pkg.dev/PROJECT_ID/REPO/IMAGE_NAME
-    # For simplicity, we use the registry path if provided in .env or assume a default GCR path.
     registry_prefix = f"gcr.io/{project_id}"
-    
     components = {
         "flight-specialist": "agents/FlightSpecialist",
         "weather-specialist": "agents/WeatherSpecialist",
@@ -62,124 +165,75 @@ def main():
         "inventory-mcp": "mcp_servers/Inventory_MCP",
     }
 
-    image_urls = {}
-    
-    print("\n📦 Building and pushing Docker images...")
-    
-    # Check if docker is available AND daemon is running, otherwise fallback to gcloud builds
+    # Docker status check
     use_docker = False
-    if shutil.which("docker") is not None:
+    if shutil.which("docker"):
         try:
-            # We run 'docker system info' to check if the daemon is actually reachable
-            # We don't check=True here because we want to handle the error ourself.
-            result = subprocess.run(
-                ["docker", "info"], 
-                capture_output=True, 
-                text=True, 
-                timeout=5
-            )
-            if result.returncode == 0:
+            if subprocess.run(["docker", "info"], capture_output=True, timeout=5).returncode == 0:
                 use_docker = True
-            else:
-                print(f"⚠️ 'docker' client is present but daemon is unreachable (exit code {result.returncode}).")
-        except (subprocess.SubprocessError, Exception):
-            print("⚠️ Exception while checking docker daemon status.")
+        except: pass
     
     if not use_docker:
-        print("💡 Falling back to 'gcloud builds' for container builds...")
+        print("⚠️ Docker daemon unreachable, falling back to 'gcloud builds'...")
 
-    for name, path in components.items():
-        image_url = f"{registry_prefix}/{name}:latest"
-        image_urls[name.replace("-", "_") + "_image"] = image_url
-        
-        full_path = root_dir / path
-        if not full_path.exists():
-            print(f"⚠️ Warning: Directory not found for {name} at {full_path}")
-            continue
+    image_urls = {}
+    for name in components:
+        image_urls[name.replace("-", "_") + "_image"] = f"{registry_prefix}/{name}:latest"
 
-        dockerfile_path = full_path / "Dockerfile"
-        if not dockerfile_path.exists():
-            print(f"⚠️ Error: Dockerfile not found for {name} at {dockerfile_path}")
-            continue
+    # Start parallel tasks
+    futures = []
+    print("\n🏗️  Starting parallel deployment tasks...")
+    
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        # 1. Docker Builds
+        for name, path in components.items():
+            image_url = image_urls[name.replace("-", "_") + "_image"]
+            log_path = logs_dir / f"build_{name}.log"
+            futures.append(executor.submit(build_docker_image, name, path, image_url, root_dir, use_docker, log_path))
 
-        if use_docker:
-            # Building from project root so it has access to uv.lock and all workspace members
-            print(f"Building {name} with docker (from project root)...")
-            run_command([
-                "docker", "build", 
-                "-t", image_url, 
-                "-f", str(dockerfile_path),
-                "."
-            ], cwd=root_dir)
-            print(f"Pushing {name}...")
-            run_command(["docker", "push", image_url])
+        # 2. Traffic Generator
+        traffic_gen_dir = root_dir / "traffic_generator"
+        if traffic_gen_dir.exists():
+            log_path = logs_dir / "package_traffic_generator.log"
+            futures.append(executor.submit(package_traffic_generator, traffic_gen_dir, root_dir / "traffic_generator_source", project_id, region, log_path))
         else:
-            print(f"Building {name} with gcloud builds submit (from project root)...")
-            # Build from root context to handle uv workspace dependencies correctly
-            # Since gcloud builds submit doesn't have a --file flag, we copy it temporarily to the root.
-            temp_dockerfile = root_dir / "Dockerfile"
-            shutil.copy2(dockerfile_path, temp_dockerfile)
+            image_urls["traffic_generator_source_zip"] = "gs://mock/source.zip"
+
+        # 3. Agent Engine
+        log_path = logs_dir / "deploy_agent_engine.log"
+        futures.append(executor.submit(deploy_agent_engine_task, root_dir, project_id, region, log_path))
+
+        # Wait for all to complete
+        print("⏳ Waiting for builds and packaging to complete...")
+        for future in concurrent.futures.as_completed(futures):
             try:
-                run_command([
-                    "gcloud", "builds", "submit", 
-                    "--tag", image_url, 
-                    "."
-                ], cwd=root_dir)
-            finally:
-                if temp_dockerfile.exists():
-                    os.remove(temp_dockerfile)
-
-    # 2. Package Traffic Generator
-    print("\n📦 Packaging Traffic Generator...")
-    traffic_gen_dir = root_dir / "traffic_generator"
-    zip_path = root_dir / "traffic_generator_source.zip"
-    
-    if traffic_gen_dir.exists():
-        # Zip the directory
-        shutil.make_archive(str(root_dir / "traffic_generator_source"), "zip", str(traffic_gen_dir))
-        
-        # Upload to GCS
-        bucket_name = f"{project_id}-deploy-artifacts"
-        gcs_path = f"gs://{bucket_name}/traffic_generator_source.zip"
-        
-        # Ensure bucket exists
-        subprocess.run(["gsutil", "mb", "-l", region, f"gs://{bucket_name}"], check=False)
-        run_command(["gsutil", "cp", str(zip_path), gcs_path])
-        image_urls["traffic_generator_source_zip"] = gcs_path
-    else:
-        print("⚠️ Warning: traffic_generator directory not found.")
-        image_urls["traffic_generator_source_zip"] = "gs://mock/source.zip"
-
-    # 3. Deploy Agent Engine
-    print("\n📦 Deploying Agent Engine...")
-    
-    agent_deploy_command = [
-        "uv", "run", "deploy-agent-engine", "--create",
-        "--project_id", project_id,
-        "--location", region,
-        "--bucket", f"{project_id}-deploy-artifacts"
-    ]
-    
-    run_command(agent_deploy_command, cwd=root_dir)
+                result = future.result()
+                if isinstance(result, str) and result.startswith("gs://"):
+                    image_urls["traffic_generator_source_zip"] = result
+                elif isinstance(result, str):
+                    print(f"  ✅ Built image for {result}")
+                else:
+                    print(f"  ✅ Parallel task completed")
+            except Exception as e:
+                print(f"  ❌ Task failed: {e}")
+                print("Exiting due to failure.")
+                sys.exit(1)
 
     # 4. Terraform Deploy
-    print("\n🏗️ Initializing and Applying Terraform...")
+    print("\n🏗️  Proceeding to Terraform...")
     
-    # Initialize
     run_command(["terraform", "init"], cwd=terraform_dir)
     
-    # Prepare variables
     tf_vars = [
         "-var", f"project_id={project_id}",
         "-var", f"region={region}",
         "-var", f"cluster_name={cluster_name}",
     ]
-    
     for key, value in image_urls.items():
         tf_vars.extend(["-var", f"{key}={value}"])
 
-    # Apply
-    run_command(["terraform", "apply", "-auto-approve"] + tf_vars, cwd=terraform_dir)
+    print("🚀 Applying Terraform (with parallelism=20)...")
+    run_command(["terraform", "apply", "-auto-approve", "-parallelism=20"] + tf_vars, cwd=terraform_dir)
 
     print("\n✅ Deployment Complete!")
 

@@ -74,10 +74,24 @@ def create_agent(agent_obj) -> None:
     print()
 
 
+import concurrent.futures
+
 def create() -> None:
-    """Deploy all configured ADK agents."""
-    create_agent(root_router_agent)
-    create_agent(booking_agent)
+    """Deploy all configured ADK agents in parallel."""
+    agents = [root_router_agent, booking_agent]
+    
+    print(f"🚀 Deploying {len(agents)} agents in parallel...")
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(agents)) as executor:
+        # We wrap it in a list to ensure we wait for all to complete and catch exceptions
+        futures = {executor.submit(create_agent, agent): agent for agent in agents}
+        for future in concurrent.futures.as_completed(futures):
+            agent = futures[future]
+            try:
+                future.result()
+            except Exception as e:
+                print(f"❌ Error deploying {agent.name}: {e}")
+                # We don't exit immediately so other agents can continue, 
+                # but we could if we wanted a fail-fast behavior.
 
 
 def delete(resource_id: str) -> None:
