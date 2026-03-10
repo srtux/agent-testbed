@@ -8,8 +8,6 @@ setup_telemetry()
 logger = setup_logging()
 
 import os
-import sys
-import logging
 import json
 import httpx
 from fastapi import FastAPI

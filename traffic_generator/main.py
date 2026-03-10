@@ -22,11 +22,11 @@ def setup_telemetry():
         from opentelemetry import trace
         from opentelemetry.sdk.trace import TracerProvider
         from opentelemetry.sdk.trace.export import BatchSpanProcessor
-        from opentelemetry.exporter.cloud_trace import CloudTraceSpanExporter
+        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
         from opentelemetry.instrumentation.requests import RequestsInstrumentor
-        
+
         provider = TracerProvider()
-        processor = BatchSpanProcessor(CloudTraceSpanExporter())
+        processor = BatchSpanProcessor(OTLPSpanExporter())
         provider.add_span_processor(processor)
         trace.set_tracer_provider(provider)
         

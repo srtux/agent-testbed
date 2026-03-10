@@ -5,17 +5,11 @@ from testbed_utils.logging import setup_logging
 
 setup_telemetry()
 logger = setup_logging()
-import os
-import sys
-import logging
-import json
 
-from fastapi import FastAPI
 from mcp.server.fastmcp import FastMCP, Context
 from opentelemetry.propagate import extract
 from opentelemetry import trace
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-import httpx
 
 tracer = trace.get_tracer(__name__)
 
@@ -23,8 +17,10 @@ tracer = trace.get_tracer(__name__)
 # --- FastMCP Server ---
 mcp = FastMCP("Inventory_MCP")
 
-def _extract_trace_context(ctx: Context):
+def _extract_trace_context(ctx: Context | None):
     """Helper to pull W3C traceparent from MCP _meta injected by clients."""
+    if ctx is None:
+        return {}
     meta_obj = ctx.request_context.meta if ctx.request_context and hasattr(ctx.request_context, 'meta') else None
     if hasattr(meta_obj, 'model_dump'):
         meta_dict = meta_obj.model_dump()
@@ -55,12 +51,12 @@ async def get_weather(location: str, ctx: Context) -> dict:
         return {"condition": "Sunny", "temperature_c": 24}
 
 @mcp.tool()
-async def commit_booking(user_id: str, ctx: Context) -> dict:
+async def commit_booking(user_id: str, flight_id: str = "", hotel_id: str = "", car_id: str = "", ctx: Context = None) -> dict:
     """Mock database command for committing bookings."""
     with tracer.start_as_current_span("mcp.tool_call.commit_booking", context=_extract_trace_context(ctx)) as span:
         span.set_attribute("mcp.tool.name", "commit_booking")
         span.set_attribute("mcp.tool.arguments.user_id", user_id)
-        logger.info(f"Committing entire travel plan for {user_id}")
+        logger.info(f"Committing entire travel plan for {user_id} (flight={flight_id}, hotel={hotel_id}, car={car_id})")
         return {"status": "success", "confirmation": "CNF-INVENTORY-OK"}
 
 # --- FastAPI App Wrapping FastMCP ---
