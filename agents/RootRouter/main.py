@@ -2,12 +2,13 @@
 # ruff: noqa: E402
 from testbed_utils.telemetry import setup_telemetry
 from testbed_utils.logging import setup_logging
-from testbed_utils.config import DEFAULT_PRO_MODEL
+from testbed_utils.config import DEFAULT_PRO_MODEL, DEFAULT_FLASH_MODEL
 
 setup_telemetry()
 logger = setup_logging()
 
 import os
+import re
 import json
 import httpx
 from fastapi import FastAPI
@@ -15,13 +16,65 @@ from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from pydantic import BaseModel, Field
 from google.adk.agents import LlmAgent
 from google.adk.runners import InMemoryRunner
+from google.adk.tools.agent_tool import AgentTool
 from google.genai import types
 
 from mcp.client.sse import sse_client
 from mcp.client.session import ClientSession
 from opentelemetry.propagate import inject
 
-# --- Tools and Delegation ---
+
+# --- Local Tool (real compute) ---
+
+async def extract_travel_intent(prompt: str) -> dict:
+    """Extract structured travel intent from a natural language prompt.
+    Parses destination, dates, and preferences from free text."""
+    intent = {"raw_prompt": prompt[:200]}
+
+    # Extract airport codes (3 uppercase letters)
+    codes = re.findall(r'\b([A-Z]{3})\b', prompt.upper())
+    if codes:
+        intent["detected_airports"] = codes
+
+    # Extract dates (various formats)
+    date_patterns = re.findall(r'\d{4}-\d{2}-\d{2}|\b\w+ \d{1,2},? \d{4}\b', prompt)
+    if date_patterns:
+        intent["detected_dates"] = date_patterns
+
+    # Detect priority keywords
+    if any(w in prompt.lower() for w in ["urgent", "emergency", "asap", "cancelled"]):
+        intent["priority"] = "urgent"
+    else:
+        intent["priority"] = "normal"
+
+    # Detect budget tier
+    if any(w in prompt.lower() for w in ["budget", "cheap", "economy"]):
+        intent["budget_tier"] = "economy"
+    elif any(w in prompt.lower() for w in ["luxury", "first class", "premium"]):
+        intent["budget_tier"] = "premium"
+    else:
+        intent["budget_tier"] = "standard"
+
+    return intent
+
+
+# --- In-Process Sub-Agent (AgentTool model) ---
+
+intent_classifier = LlmAgent(
+    name="IntentClassifier",
+    model=DEFAULT_FLASH_MODEL,
+    description="Classify user travel request type: new_booking, modification, inquiry, or cancellation.",
+    static_instruction="""You classify travel requests into exactly one category:
+    - new_booking: User wants to book a new trip
+    - modification: User wants to change an existing booking
+    - inquiry: User is asking questions about travel options
+    - cancellation: User wants to cancel a booking
+
+    Respond with just the category name and a one-sentence reason.""",
+)
+
+
+# --- A2A HTTP + MCP Delegation Tool ---
 
 class FlightRequest(BaseModel):
     user_id: str = Field(description="The unique user ID for the request")
@@ -34,12 +87,12 @@ async def consult_flight_specialist(request: FlightRequest) -> dict:
     # This URL would typically come from environment variables
     flight_specialist_url = os.environ.get("FLIGHT_SPECIALIST_URL", "http://localhost:8082/chat")
     profile_mcp_url = os.environ.get("PROFILE_MCP_URL", "http://localhost:8090/sse")
-    
+
     if profile_mcp_url.endswith("/mcp/call_tool"):
         profile_mcp_url = profile_mcp_url.replace("/mcp/call_tool", "/sse")
-    
+
     logger.info(f"Checking user profile via FastMCP for user: {request.user_id}, destination: {request.destination}")
-    
+
     profile_data = {"preferences": "Unknown"}
     # Trace edge: AE -> CR MCP using official FastMCP Session
     try:
@@ -48,9 +101,9 @@ async def consult_flight_specialist(request: FlightRequest) -> dict:
                 await session.initialize()
                 meta = {}
                 inject(meta)  # Propagate W3C traceparent into the _meta object
-                
+
                 res = await session.call_tool(
-                    "get_user_preferences", 
+                    "get_user_preferences",
                     arguments={"user_id": request.user_id},
                     meta=meta
                 )
@@ -70,14 +123,14 @@ async def consult_flight_specialist(request: FlightRequest) -> dict:
         profile_data = {"error": str(e)}
     request_dict = request.model_dump()
     request_dict["profile_context"] = profile_data
-    
+
     logger.info(f"Delegating to FlightSpecialist for destination: {request.destination}")
-    
+
     # Trace edge: AE -> CR
     async with httpx.AsyncClient() as client:
         # In a real environment, we would obtain an OIDC token here for auth
         response = await client.post(
-            flight_specialist_url, 
+            flight_specialist_url,
             json=request_dict,
             timeout=60.0
         )
@@ -92,11 +145,14 @@ async def consult_flight_specialist(request: FlightRequest) -> dict:
 agent = LlmAgent(
     name="RootRouter",
     model=DEFAULT_PRO_MODEL,
-    static_instruction="""You are the Root Router for an Enterprise Travel Concierge. 
-    You manage the transaction state across various sub-agents. Find flights via the Flight Specialist tool.
-    
-    Ensure you gather the user's information and trigger the master itinerary planner correctly. Do not ask the user for their departure airport if it's missing; just pass an empty string to the tool.""",
-    tools=[consult_flight_specialist],
+    static_instruction="""You are the Root Router for an Enterprise Travel Concierge.
+    1. First, extract the travel intent from the user's request using extract_travel_intent.
+    2. Classify the request type using the IntentClassifier tool.
+    3. For new bookings, delegate to the Flight Specialist via consult_flight_specialist.
+
+    Ensure you gather the user's information and trigger the master itinerary planner correctly.
+    Do not ask the user for their departure airport if it's missing; just pass an empty string to the tool.""",
+    tools=[extract_travel_intent, AgentTool(agent=intent_classifier), consult_flight_specialist],
 )
 
 # For Vertex AI Agent Engine, you typically don't need to wrap in FastAPI if using the platform's native endpoints.
@@ -113,7 +169,7 @@ class RouterRequest(BaseModel):
 @app.post("/chat")
 async def chat_endpoint(request: RouterRequest):
     logger.info(f"RootRouter Received root prompt for {request.user_id}")
-    
+
     final_response = None
     prompt_text = f"[System Context: The current user's ID is '{request.user_id}']\n{request.prompt}"
     async for event in runner.run_async(user_id=request.user_id, session_id="default", new_message=types.Content(role="user", parts=[types.Part.from_text(text=prompt_text)])):
@@ -121,7 +177,7 @@ async def chat_endpoint(request: RouterRequest):
             for part in event.content.parts:
                 if part.text:
                     final_response = (final_response or "") + part.text
-                    
+
     return {"status": "complete", "orchestration_summary": final_response}
 
 if __name__ == "__main__":
