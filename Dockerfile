@@ -28,4 +28,4 @@ ENV PATH="/app/.venv/bin:$PATH"
 ENV OTEL_SEMCONV_STABILITY_OPT_IN=gen_ai_latest_experimental
 
 # The CMD should point to the entrypoint of the specific service
-CMD ["uvicorn", "agents.WeatherSpecialist.main:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["uvicorn", "agents.RootRouter.main:app", "--host", "0.0.0.0", "--port", "8080"]
