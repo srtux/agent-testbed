@@ -261,10 +261,11 @@ async def test_remote_mcp_traces_exist():
 
 # ---------------------------------------------------------------------------
 # Local integration trace test — verifies spans from local services
+# (Name contains "local" so it's selected by -k "local" in test runner)
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_local_agent_produces_http_spans():
+async def test_local_services_produce_traces():
     """
     Sends a request to local RootRouter and checks that the HTTP layer
     produces the expected FastAPI span.

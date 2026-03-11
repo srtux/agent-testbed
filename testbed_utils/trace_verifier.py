@@ -14,7 +14,6 @@ Usage:
 """
 
 import os
-import time
 import logging
 from dataclasses import dataclass, field
 
@@ -39,12 +38,6 @@ EXPECTED_MCP_SPANS = {
     "Profile_MCP": ["get_user_preferences", "profile", "Profile"],
     "Inventory_MCP": ["get_hotel_inventory", "get_weather", "commit_booking", "inventory", "Inventory"],
 }
-
-# HTTP spans indicating cross-service calls
-EXPECTED_HTTP_SPANS = [
-    "POST",  # httpx/requests instrumented spans
-    "HTTP",
-]
 
 
 @dataclass
@@ -100,8 +93,70 @@ class VerificationReport:
         return "\n".join(lines)
 
 
+def _analyze_traces(
+    traces: list,
+    require_all_agents: bool = False,
+    require_all_mcp: bool = False,
+) -> VerificationReport:
+    """Shared verification logic: scan traces for expected agent and MCP spans.
+
+    Args:
+        traces: List of TraceInfo objects to examine.
+        require_all_agents: If True, all agents must appear across traces to pass.
+        require_all_mcp: If True, both MCP servers must appear across traces to pass.
+    """
+    report = VerificationReport(total_traces=len(traces))
+
+    for trace in traces:
+        span_names = [s.name for s in trace.spans]
+        has_agent = False
+        has_mcp = False
+
+        for agent_name, patterns in EXPECTED_AGENT_SPANS.items():
+            for pattern in patterns:
+                if any(pattern.lower() in sn.lower() for sn in span_names):
+                    report.agents_found.setdefault(agent_name, 0)
+                    report.agents_found[agent_name] += 1
+                    has_agent = True
+                    break
+
+        for mcp_name, patterns in EXPECTED_MCP_SPANS.items():
+            for pattern in patterns:
+                if any(pattern.lower() in sn.lower() for sn in span_names):
+                    report.mcp_servers_found.setdefault(mcp_name, 0)
+                    report.mcp_servers_found[mcp_name] += 1
+                    has_mcp = True
+                    break
+
+        if has_agent:
+            report.traces_with_agents += 1
+        if has_mcp:
+            report.traces_with_mcp += 1
+
+    # Determine missing components
+    for agent_name in EXPECTED_AGENT_SPANS:
+        if agent_name not in report.agents_found:
+            report.missing_agents.append(agent_name)
+    for mcp_name in EXPECTED_MCP_SPANS:
+        if mcp_name not in report.mcp_servers_found:
+            report.missing_mcp_servers.append(mcp_name)
+
+    # Determine pass/fail
+    if report.total_traces == 0:
+        report.passed = False
+        report.errors.append("No traces found")
+    elif require_all_agents and report.missing_agents:
+        report.passed = False
+    elif require_all_mcp and report.missing_mcp_servers:
+        report.passed = False
+    else:
+        report.passed = len(report.agents_found) > 0 and len(report.mcp_servers_found) > 0
+
+    return report
+
+
 class CloudTraceVerifier:
-    """Queries Google Cloud Trace v2 API to verify agent and MCP spans."""
+    """Queries Google Cloud Trace v1 API to verify agent and MCP spans."""
 
     def __init__(self, project_id: str = ""):
         self.project_id = project_id or os.environ.get("GOOGLE_CLOUD_PROJECT", "")
@@ -109,35 +164,21 @@ class CloudTraceVerifier:
             raise ValueError("project_id is required (or set GOOGLE_CLOUD_PROJECT)")
 
     def list_recent_traces(self, minutes: int = 10, page_size: int = 20) -> list:
-        """List recent traces from Cloud Trace API."""
-        from google.cloud import trace_v2
-        from google.protobuf import timestamp_pb2
+        """List recent traces from Cloud Trace v1 API."""
         import datetime
-
-        client = trace_v2.TraceServiceClient()
-        project_name = f"projects/{self.project_id}"
+        from googleapiclient import discovery
 
         now = datetime.datetime.now(datetime.timezone.utc)
         start = now - datetime.timedelta(minutes=minutes)
 
-        # Use batch_write_spans won't work for reading — use list_traces via REST
-        # The v2 API's primary read method is through Cloud Trace v1 for listing.
-        # We'll use the v1 API for listing and v2 for span details.
-        from googleapiclient import discovery
+        start_time = start.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+        end_time = now.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
-        service = discovery.build("cloudtrace", "v2", cache_discovery=False)
-
-        # List spans using the v2 batch read
-        # Actually, Cloud Trace v2 uses list via REST more naturally
-        # Let's use the v1 list API which is simpler for listing traces
-        v1_service = discovery.build("cloudtrace", "v1", cache_discovery=False)
-
-        end_time = now.isoformat() + "Z" if not now.isoformat().endswith("Z") else now.isoformat()
-        start_time = start.isoformat() + "Z" if not start.isoformat().endswith("Z") else start.isoformat()
+        service = discovery.build("cloudtrace", "v1", cache_discovery=False)
 
         traces = []
         try:
-            request = v1_service.projects().traces().list(
+            request = service.projects().traces().list(
                 projectId=self.project_id,
                 startTime=start_time,
                 endTime=end_time,
@@ -156,7 +197,6 @@ class CloudTraceVerifier:
                         parent_span_id=span_data.get("parentSpanId", ""),
                         start_time=span_data.get("startTime", ""),
                         end_time=span_data.get("endTime", ""),
-                        attributes={},
                     ))
                 traces.append(TraceInfo(trace_id=trace_id, spans=spans))
 
@@ -166,74 +206,9 @@ class CloudTraceVerifier:
 
         return traces
 
-    def verify_agent_spans(
-        self,
-        traces: list,
-        require_all_agents: bool = False,
-        require_all_mcp: bool = False,
-    ) -> VerificationReport:
-        """Verify that traces contain expected agent and MCP server spans.
-
-        Args:
-            traces: List of TraceInfo objects to examine.
-            require_all_agents: If True, all 9 agents must appear across traces.
-            require_all_mcp: If True, both MCP servers must appear across traces.
-        """
-        report = VerificationReport(total_traces=len(traces))
-
-        all_span_names = []
-        for trace in traces:
-            span_names = [s.name for s in trace.spans]
-            all_span_names.extend(span_names)
-
-            has_agent = False
-            has_mcp = False
-
-            for agent_name, patterns in EXPECTED_AGENT_SPANS.items():
-                for pattern in patterns:
-                    if any(pattern.lower() in sn.lower() for sn in span_names):
-                        report.agents_found.setdefault(agent_name, 0)
-                        report.agents_found[agent_name] += 1
-                        has_agent = True
-                        break
-
-            for mcp_name, patterns in EXPECTED_MCP_SPANS.items():
-                for pattern in patterns:
-                    if any(pattern.lower() in sn.lower() for sn in span_names):
-                        report.mcp_servers_found.setdefault(mcp_name, 0)
-                        report.mcp_servers_found[mcp_name] += 1
-                        has_mcp = True
-                        break
-
-            if has_agent:
-                report.traces_with_agents += 1
-            if has_mcp:
-                report.traces_with_mcp += 1
-
-        # Determine missing components
-        for agent_name in EXPECTED_AGENT_SPANS:
-            if agent_name not in report.agents_found:
-                report.missing_agents.append(agent_name)
-
-        for mcp_name in EXPECTED_MCP_SPANS:
-            if mcp_name not in report.mcp_servers_found:
-                report.missing_mcp_servers.append(mcp_name)
-
-        # Determine pass/fail
-        has_some_agents = len(report.agents_found) > 0
-        has_some_mcp = len(report.mcp_servers_found) > 0
-
-        if require_all_agents and report.missing_agents:
-            report.passed = False
-        elif require_all_mcp and report.missing_mcp_servers:
-            report.passed = False
-        elif report.total_traces == 0:
-            report.passed = False
-            report.errors.append("No traces found")
-        else:
-            report.passed = has_some_agents and has_some_mcp
-
-        return report
+    def verify_agent_spans(self, traces: list, **kwargs) -> VerificationReport:
+        """Verify that traces contain expected agent and MCP server spans."""
+        return _analyze_traces(traces, **kwargs)
 
 
 class InMemoryTraceVerifier:
@@ -272,48 +247,13 @@ class InMemoryTraceVerifier:
     def verify(self, **kwargs) -> VerificationReport:
         """Verify spans from the in-memory exporter."""
         traces = self.get_traces()
-        # Reuse the same verification logic
-        report = VerificationReport(total_traces=len(traces))
-
-        all_span_names = []
-        for trace in traces:
-            span_names = [s.name for s in trace.spans]
-            all_span_names.extend(span_names)
-
-            has_agent = False
-            has_mcp = False
-
-            for agent_name, patterns in EXPECTED_AGENT_SPANS.items():
-                for pattern in patterns:
-                    if any(pattern.lower() in sn.lower() for sn in span_names):
-                        report.agents_found.setdefault(agent_name, 0)
-                        report.agents_found[agent_name] += 1
-                        has_agent = True
-                        break
-
-            for mcp_name, patterns in EXPECTED_MCP_SPANS.items():
-                for pattern in patterns:
-                    if any(pattern.lower() in sn.lower() for sn in span_names):
-                        report.mcp_servers_found.setdefault(mcp_name, 0)
-                        report.mcp_servers_found[mcp_name] += 1
-                        has_mcp = True
-                        break
-
-            if has_agent:
-                report.traces_with_agents += 1
-            if has_mcp:
-                report.traces_with_mcp += 1
-
-        for agent_name in EXPECTED_AGENT_SPANS:
-            if agent_name not in report.agents_found:
-                report.missing_agents.append(agent_name)
-        for mcp_name in EXPECTED_MCP_SPANS:
-            if mcp_name not in report.mcp_servers_found:
-                report.missing_mcp_servers.append(mcp_name)
-
-        has_some = len(report.agents_found) > 0 or len(report.mcp_servers_found) > 0
-        report.passed = has_some if report.total_traces > 0 else False
-
+        # InMemoryTraceVerifier uses a slightly relaxed pass criteria:
+        # passes if *any* recognized spans are found (agents OR mcp)
+        report = _analyze_traces(traces, **kwargs)
+        if report.total_traces > 0 and not report.passed:
+            has_any = len(report.agents_found) > 0 or len(report.mcp_servers_found) > 0
+            if has_any:
+                report.passed = True
         return report
 
 
