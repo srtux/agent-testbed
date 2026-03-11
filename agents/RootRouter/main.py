@@ -81,7 +81,7 @@ class FlightRequest(BaseModel):
     dates: str = Field(description="The travel dates")
 
 async def consult_flight_specialist(request: FlightRequest) -> dict:
-    """Delegates the flight booking task to the FlightSpecialist sub-agent."""
+    """Delegates flight search, availability check, and booking tasks to the FlightSpecialist sub-agent."""
     flight_specialist_url = os.environ.get("FLIGHT_SPECIALIST_URL", "http://localhost:8082/chat")
     profile_mcp_url = os.environ.get("PROFILE_MCP_URL", "http://localhost:8090/sse")
 
@@ -147,10 +147,11 @@ agent = LlmAgent(
     static_instruction="""You are the Root Router for an Enterprise Travel Concierge.
     1. First, extract the travel intent from the user's request using extract_travel_intent.
     2. Classify the request type using the IntentClassifier tool.
-    3. For new bookings, delegate to the Flight Specialist via consult_flight_specialist.
+    3. For new bookings or flight search requests, delegate to the Flight Specialist via consult_flight_specialist.
 
     CRITICAL: Always look for the [System Context: The current user's ID is '...'] in the prompt and pass that ID as the `user_id` argument when calling `consult_flight_specialist`. Do not leave it empty.
-    Do not ask the user for their departure airport if it's missing; just pass an empty string to the tool.""",
+    Do not ask the user for their departure airport if it's missing; just pass an empty string to the tool.
+    DO NOT assume any tools exist other than the ones provided.""" ,
     tools=[extract_travel_intent, AgentTool(agent=intent_classifier), consult_flight_specialist],
 )
 
