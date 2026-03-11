@@ -4,7 +4,8 @@ import json
 import logging
 import uuid
 
-from testbed_utils.config import DEFAULT_PRO_MODEL, DEFAULT_FLASH_MODEL
+DEFAULT_PRO_MODEL = os.environ.get("PRO_MODEL", "gemini-2.5-pro")
+DEFAULT_FLASH_MODEL = os.environ.get("FLASH_MODEL", "gemini-2.5-flash")
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)

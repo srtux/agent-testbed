@@ -3,7 +3,8 @@ import json
 import logging
 import uuid
 
-from testbed_utils.config import DEFAULT_PRO_MODEL, DEFAULT_FLASH_MODEL
+DEFAULT_PRO_MODEL = os.environ.get("PRO_MODEL", "gemini-2.5-pro")
+DEFAULT_FLASH_MODEL = os.environ.get("FLASH_MODEL", "gemini-2.5-flash")
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -25,7 +26,9 @@ from opentelemetry.propagate import inject
 
 async def calculate_trip_cost(flight_cost: float, hotel_cost: float, car_cost: float, days: int, loyalty_tier: str) -> dict:
     """Aggregate costs from flight, hotel, and car rental. Apply loyalty discounts."""
-    from testbed_utils.config import LOYALTY_DISCOUNTS
+    LOYALTY_DISCOUNTS = {
+        "Gold": 0.15, "Silver": 0.10, "Bronze": 0.05,
+    }
     subtotal = flight_cost + (hotel_cost * days) + (car_cost * days)
     discount_pct = LOYALTY_DISCOUNTS.get(loyalty_tier, 0)
     discount = subtotal * discount_pct
