@@ -9,6 +9,7 @@ logger = setup_logging()
 
 import os
 import json
+import uuid
 
 import httpx
 from fastapi import FastAPI
@@ -107,7 +108,7 @@ async def chat_endpoint(request: CarRequest):
     prompt = f"Find a rental car at {request.destination} for {request.dates}. User: {request.user_id}."
 
     final_response = None
-    async for event in runner.run_async(user_id=request.user_id, session_id="default", new_message=types.Content(role="user", parts=[types.Part.from_text(text=prompt)])):
+    async for event in runner.run_async(user_id=request.user_id, session_id=str(uuid.uuid4()), new_message=types.Content(role="user", parts=[types.Part.from_text(text=prompt)])):
         if hasattr(event, "content") and event.content:
             for part in event.content.parts:
                 if part.text:

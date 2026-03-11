@@ -36,6 +36,14 @@ resource "kubernetes_deployment" "hotel_specialist" {
             value = "gen_ai_latest_experimental"
           }
           env {
+            name  = "OTEL_EXPORTER_OTLP_ENDPOINT"
+            value = "https://telemetry.googleapis.com"
+          }
+          env {
+            name  = "OTEL_SERVICE_NAME"
+            value = "hotel-specialist"
+          }
+          env {
             name  = "INVENTORY_MCP_URL"
             value = "http://gke-inventory-mcp-service/sse"
           }
@@ -137,6 +145,14 @@ resource "kubernetes_deployment" "car_rental_specialist" {
             value = "gen_ai_latest_experimental"
           }
           env {
+            name  = "OTEL_EXPORTER_OTLP_ENDPOINT"
+            value = "https://telemetry.googleapis.com"
+          }
+          env {
+            name  = "OTEL_SERVICE_NAME"
+            value = "car-rental-specialist"
+          }
+          env {
             name  = "PROFILE_MCP_URL"
             value = "${local.profile_mcp_url}/sse"
           }
@@ -232,6 +248,14 @@ resource "kubernetes_deployment" "inventory_mcp" {
           env {
             name  = "OTEL_SEMCONV_STABILITY_OPT_IN"
             value = "gen_ai_latest_experimental"
+          }
+          env {
+            name  = "OTEL_EXPORTER_OTLP_ENDPOINT"
+            value = "https://telemetry.googleapis.com"
+          }
+          env {
+            name  = "OTEL_SERVICE_NAME"
+            value = "inventory-mcp"
           }
 
           resources {

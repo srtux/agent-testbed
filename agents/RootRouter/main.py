@@ -2,6 +2,7 @@ import os
 import re
 import json
 import logging
+import uuid
 
 from testbed_utils.config import DEFAULT_PRO_MODEL, DEFAULT_FLASH_MODEL
 
@@ -170,8 +171,9 @@ async def chat_endpoint(request: RouterRequest):
     logger.info(f"RootRouter Received root prompt for {request.user_id}")
 
     final_response = None
+    session_id = str(uuid.uuid4())
     prompt_text = f"[System Context: The current user's ID is '{request.user_id}']\n{request.prompt}"
-    async for event in runner.run_async(user_id=request.user_id, session_id="default", new_message=types.Content(role="user", parts=[types.Part.from_text(text=prompt_text)])):
+    async for event in runner.run_async(user_id=request.user_id, session_id=session_id, new_message=types.Content(role="user", parts=[types.Part.from_text(text=prompt_text)])):
         if hasattr(event, "content") and event.content:
             for part in event.content.parts:
                 if part.text:

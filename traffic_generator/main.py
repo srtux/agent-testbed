@@ -60,10 +60,13 @@ def generate_traffic(request: Request):
         logger.info(f"Initiating travel concierge trace waterfall for {user_id}")
         span.set_attribute("gen_ai.prompt", prompt)
         
-        ae1_url = os.environ.get("ROOT_ROUTER_URL", "http://ae1-root-router/chat")
-        
+        ae1_url = os.environ.get("ROOT_ROUTER_URL")
+        if not ae1_url:
+            logger.error("ROOT_ROUTER_URL environment variable is not set. Cannot generate traffic.")
+            return json.dumps({"status": "error", "message": "ROOT_ROUTER_URL not configured"}), 500, {'Content-Type': 'application/json'}
+
         payload = {"user_id": user_id, "prompt": prompt}
-        
+
         try:
             # The RequestsInstrumentor ensures traceparent is sent to RootRouter
             res = requests.post(ae1_url, json=payload, timeout=300.0)
