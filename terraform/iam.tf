@@ -180,3 +180,19 @@ resource "google_service_account_iam_member" "gke_agents_workload_identity" {
   role               = "roles/iam.workloadIdentityUser"
   member             = "serviceAccount:${var.project_id}.svc.id.goog[default/gke-agents-ksa]"
 }
+
+# --- Vertex AI Service Agent Permissions ---
+# Vertex AI Service Agent needs compute.networkAdmin to update the PSC network attachment
+# to accept connections when creating the PSC interface.
+resource "google_project_iam_member" "vertex_service_agent_network_admin" {
+  project = var.project_id
+  role    = "roles/compute.networkAdmin"
+  member  = "serviceAccount:service-${data.google_project.current.number}@gcp-sa-aiplatform.iam.gserviceaccount.com"
+}
+
+resource "google_project_iam_member" "vertex_service_agent_dns_peer" {
+  project = var.project_id
+  role    = "roles/dns.peer"
+  member  = "serviceAccount:service-${data.google_project.current.number}@gcp-sa-aiplatform.iam.gserviceaccount.com"
+}
+

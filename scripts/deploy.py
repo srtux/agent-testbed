@@ -85,29 +85,29 @@ def build_docker_image(name, path, image_url, root_dir, use_docker, log_path):
             # Build from root context to handle uv workspace dependencies correctly
             temp_dockerfile = root_dir / f"Dockerfile.{name}"
             shutil.copy2(dockerfile_path, temp_dockerfile)
+            
+            # Create a temporary cloudbuild.yaml to avoid --dockerfile argument issues
+            # and allow safe parallel builds.
+            cloudbuild_content = f"""
+steps:
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['build', '-t', '{image_url}', '-f', 'Dockerfile.{name}', '.']
+images:
+- '{image_url}'
+"""
+            cloudbuild_path = root_dir / f"cloudbuild-{name}.yaml"
+            with open(cloudbuild_path, "w") as cb:
+                cb.write(cloudbuild_content.strip() + "\n")
+
             try:
                 run_command([
                     "gcloud", "builds", "submit",
-                    "--tag", image_url,
-                    "--dockerfile", str(temp_dockerfile),
+                    "--config", str(cloudbuild_path),
                     "."
                 ], cwd=root_dir, log_file=f)
-            except Exception:
-                # Fallback if --dockerfile isn't supported: use a per-service
-                # unique name to avoid race conditions with concurrent builds
-                f.write(f"Retrying with renamed Dockerfile at root...\n")
-                fallback_dockerfile = root_dir / f"Dockerfile.fallback.{name}"
-                shutil.copy2(dockerfile_path, fallback_dockerfile)
-                try:
-                    run_command([
-                        "gcloud", "builds", "submit",
-                        "--tag", image_url,
-                        "--dockerfile", str(fallback_dockerfile),
-                        "."
-                    ], cwd=root_dir, log_file=f)
-                finally:
-                    if fallback_dockerfile.exists(): os.remove(fallback_dockerfile)
             finally:
+                if cloudbuild_path.exists():
+                    os.remove(cloudbuild_path)
                 if temp_dockerfile.exists():
                     os.remove(temp_dockerfile)
     return name
@@ -124,10 +124,10 @@ def package_traffic_generator(traffic_gen_dir, zip_path_base, project_id, region
         gcs_path = f"gs://{bucket_name}/traffic_generator_source.zip"
 
         f.write(f"🪣 Creating bucket {bucket_name} if needed...\n")
-        subprocess.run(["gsutil", "mb", "-l", region, f"gs://{bucket_name}"], check=False, stdout=f, stderr=subprocess.STDOUT)
+        subprocess.run(["gcloud", "storage", "buckets", "create", f"gs://{bucket_name}", "--location", region], check=False, stdout=f, stderr=subprocess.STDOUT)
 
         f.write(f"📤 Uploading {zip_path} to {gcs_path}...\n")
-        run_command(["gsutil", "cp", str(zip_path), gcs_path], log_file=f)
+        run_command(["gcloud", "storage", "cp", str(zip_path), gcs_path], log_file=f)
     return gcs_path
 
 
@@ -285,7 +285,7 @@ def main():
         build_futures = []
         print("\n[Phase 1] 🛠️  Starting parallel build tasks...")
 
-        num_workers = 10 if use_docker else 1
+        num_workers = 10  # Enabled parallel builds for gcloud builds as well
         with concurrent.futures.ThreadPoolExecutor(max_workers=num_workers) as executor:
             for name, path in components.items():
                 image_url = image_urls[name.replace("-", "_") + "_image"]

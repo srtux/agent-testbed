@@ -354,6 +354,19 @@ graph TD
 | **GKE** | **GKE** | `Inventory_MCP` | MCP (SSE) | **Local ClusterIP DNS** | **Local ClusterIP DNS** |
 | **GKE** | **Cloud Run** | `Profile_MCP` | MCP (SSE) | VPC Edge Router | VPC ➡️ CR Internal Endpoint |
 
+
+#### 🔑 Required IAM Permissions for Agent Engine VPC Egress
+
+When using `psc_interface_config` (as enabled in direct mode or secure setups for egress into your VPC), the **Vertex AI Service Agent** (typically `service-[PROJECT_NUMBER]@gcp-sa-aiplatform.iam.gserviceaccount.com`) requires additional IAM permissions:
+
+| Role | Why It's Needed |
+| :--- | :--- |
+| **`roles/compute.networkAdmin`** | To fetch and bind the `networkAttachment` resource. |
+| **`roles/dns.peer`** | To create and manage DNS peering zones (e.g., for `*.run.app` resolution) during updates. |
+
+> [!IMPORTANT]
+> Without these roles, Agent Engine creation/updates will fail with `403 Forbidden` on `compute.networkAttachments.get` or DNS peering peering zone creation. These bindings are managed in `/terraform/iam.tf`.
+
 #### 📚 Official Documentation References
 -   [Use Private Service Connect interface for Vertex AI Training](https://cloud.google.com/vertex-ai/docs/training/psc-i-egress) (Platform Primitive Reference for VPC Egress Setup).
 
