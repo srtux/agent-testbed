@@ -88,3 +88,68 @@ async def test_full_agent_orchestration():
     # 4. BookingOrchestrator finalizes it and gives a summary
     assert len(summary) > 20, "Summary is too short or missing."
     assert any(x in summary for x in ["sfo", "san francisco", "cloud suites"]), "Summary did not recognize destination."
+
+
+@pytest.mark.asyncio
+async def test_flight_specialist_isolated():
+    """Tests the FlightSpecialist endpoint directly."""
+    url = os.environ.get("FLIGHT_SPECIALIST_URL")
+    if not url:
+        pytest.skip("FLIGHT_SPECIALIST_URL not set in environment.")
+
+    payload = {
+        "user_id": "test_user_isolated",
+        "destination": "SFO",
+        "departure_airport": "JFK",
+        "dates": "next week"
+    }
+
+    print(f"\nEvaluating isolated call to FlightSpecialist: {url}")
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        response = await client.post(url, json=payload)
+        assert response.status_code == 200
+        data = response.json()
+        assert "flight" in str(data).lower() or "recommend" in str(data).lower() or "itinerary" in str(data).lower()
+
+
+@pytest.mark.asyncio
+async def test_hotel_specialist_isolated():
+    """Tests the HotelSpecialist endpoint directly."""
+    url = os.environ.get("HOTEL_SPECIALIST_URL")
+    if not url:
+        pytest.skip("HOTEL_SPECIALIST_URL not set in environment.")
+
+    payload = {
+        "user_id": "test_user_isolated",
+        "prompt": "I need a luxury hotel in SFO"
+    }
+
+    print(f"\nEvaluating isolated call to HotelSpecialist: {url}")
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        # Hotel Specialist usually forwards to chain if needed, but accepts isolated requests
+        response = await client.post(url, json=payload)
+        assert response.status_code == 200
+        data = response.json()
+        assert any(x in str(data).lower() for x in ["hotel", "room", "stay", "itinerary", "summary"])
+
+
+@pytest.mark.asyncio
+async def test_profile_mcp_isolated():
+    """Tests the Profile_MCP server tool calling directly."""
+    from mcp.client.sse import sse_client
+    from mcp.client.session import ClientSession
+    
+    url = os.environ.get("PROFILE_MCP_URL")
+    if not url:
+        pytest.skip("PROFILE_MCP_URL not set in environment.")
+
+    print(f"\nEvaluating isolated FastMCP call to Profile_MCP: {url}")
+    try:
+        async with sse_client(url) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                res = await session.call_tool("get_user_preferences", arguments={"user_id": "test_user"})
+                assert res.content and len(res.content) > 0
+                print(f"Profile data: {res.content[0].text}")
+    except Exception as e:
+        pytest.fail(f"FastMCP isolated test failed: {e}")
