@@ -185,12 +185,22 @@ def create(custom_domain, service_urls=None, psc_network_attachment=None, vpc_pr
 
     print("Listing existing agents...")
     existing_agents_lookup = {}
-    try:
-        remote_agents = agent_engines.list()
-        existing_agents_lookup = {agent.display_name: agent.name for agent in remote_agents}
-        print(f"Found {len(existing_agents_lookup)} existing agents.")
-    except Exception as e:
-        print(f"Warning: Could not list existing agents: {e}")
+    outputs_path = os.path.join(project_root, "agent_engine_outputs.json")
+    if os.path.exists(outputs_path):
+        try:
+            with open(outputs_path) as f:
+                existing_agents_lookup = json.load(f)
+                print(f"Loaded {len(existing_agents_lookup)} existing agents from agent_engine_outputs.json (fast fallback)")
+        except Exception as e:
+            print(f"Warning: Could not read agent_engine_outputs.json: {e}")
+
+    if not existing_agents_lookup:
+        try:
+            remote_agents = agent_engines.list()
+            existing_agents_lookup = {agent.display_name: agent.name for agent in remote_agents}
+            print(f"Found {len(existing_agents_lookup)} existing agents via list().")
+        except Exception as e:
+            print(f"Warning: Could not list existing agents: {e}")
 
     results = {}
 
