@@ -312,3 +312,32 @@ IAM bindings are per-service. Check that the calling service account has `roles/
 ```bash
 gcloud run services get-iam-policy flight-specialist --region=us-central1
 ```
+
+## 📈 AppHub Application Setup
+
+The application resources are grouped together into a cohesive view in **Google Cloud AppHub** (`testbed-app1` in the `global` region). This helps track endpoints, metadata, and dependencies natively.
+
+### 1. Structure
+Within AppHub, components are split across:
+*   **Services**: Exposes the actual connection URL endpoints (Cloud Run and GKE standard Service LoadBalancers).
+*   **Workloads**: The underlying backing compute nodes/pods running the loads (GKE Deployments and Vertex AI Reasoning Engine allocations).
+
+### 2. Management (Terraform)
+To maintain declarative reproducibility, resource registration can be managed seamlessly combining your endpoints via `@google-beta` **discovered metadata lookups**:
+
+See `/terraform/apphub.tf` for uncommented usage:
+```hcl
+data "google_apphub_discovered_service" "weather_specialist" {
+  location    = "us-central1"
+  service_uri = "//run.googleapis.com/projects/${var.project_id}/locations/${var.region}/services/weather-specialist"
+}
+
+resource "google_apphub_service" "weather_specialist" {
+   application_id      = "testbed-app1"
+   location            = "global"
+   service_id          = "weather-specialist"
+   discovered_service   = data.google_apphub_discovered_service.weather_specialist.name
+}
+```
+If you integrate manual creates later back into Terraform apply cycles, run `terraform import` corresponding nodes strictly to prevent creation item duplicate collisions.
+
