@@ -1,6 +1,7 @@
 import os
 import sys
 import subprocess
+import json
 
 def local():
     """Runs tests locally against localhost."""
@@ -17,8 +18,20 @@ def local():
 def remote():
     """Runs tests remotely against a deployed Cloud endpoint."""
     ae1_url = os.environ.get("ROOT_ROUTER_URL")
+    
     if not ae1_url:
-        print("❌ Error: ROOT_ROUTER_URL environment variable is required to run remote tests.")
+        # Attempt to read from agent_engine_outputs.json
+        output_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "agent_engine_outputs.json")
+        if os.path.exists(output_path):
+            try:
+                with open(output_path) as f:
+                    outputs = json.load(f)
+                    ae1_url = outputs.get("RootRouter")
+            except Exception as e:
+                print(f"⚠️ Warning: Failed to read agent_engine_outputs.json: {e}")
+                
+    if not ae1_url:
+        print("❌ Error: ROOT_ROUTER_URL environment variable or agent_engine_outputs.json with 'RootRouter' is required to run remote tests.")
         print("Example: ROOT_ROUTER_URL=https://my-router-url.a.run.app uv run test-remote")
         sys.exit(1)
         

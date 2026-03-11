@@ -46,7 +46,7 @@ def manual_find_packages(base_dir):
     return packages
 
 
-def create_agent(config, custom_domain, service_urls=None) -> None:
+def create_agent(config, custom_domain, service_urls=None, existing_agents_lookup=None) -> None:
     """Creates an agent engine for the given agent."""
     import importlib.util
     import cloudpickle
@@ -125,15 +125,26 @@ def create_agent(config, custom_domain, service_urls=None) -> None:
 
     print(f"🤖 Deploying {agent_obj.name}...")
     resource_name = None
+    existing_resource_name = existing_agents_lookup.get(agent_obj.name) if existing_agents_lookup else None
     try:
-        remote_agent = agent_engines.create(
-            adk_app,
-            display_name=agent_obj.name,
-            requirements=requirements,
-            env_vars=env_vars
-        )
+        if existing_resource_name:
+            print(f"🤖 Updating existing agent {agent_obj.name} ({existing_resource_name})...")
+            remote_agent = agent_engines.update(
+                resource_name=existing_resource_name,
+                agent_engine=adk_app,
+                requirements=requirements,
+                env_vars=env_vars
+            )
+        else:
+            print(f"🤖 Creating new agent {agent_obj.name}...")
+            remote_agent = agent_engines.create(
+                adk_app,
+                display_name=agent_obj.name,
+                requirements=requirements,
+                env_vars=env_vars
+            )
         resource_name = remote_agent.resource_name
-        print(f"✅ Created remote agent {agent_obj.name}: {resource_name}")
+        print(f"✅ Deployed remote agent {agent_obj.name}: {resource_name}")
     except Exception as e:
         print(f"❌ Error creating agent {agent_obj.name}: {e}")
         raise e
@@ -149,11 +160,20 @@ def create(custom_domain, service_urls=None) -> dict:
     ]
 
 
+    print("Listing existing agents...")
+    existing_agents_lookup = {}
+    try:
+        remote_agents = agent_engines.list()
+        existing_agents_lookup = {agent.display_name: agent.name for agent in remote_agents}
+        print(f"Found {len(existing_agents_lookup)} existing agents.")
+    except Exception as e:
+        print(f"Warning: Could not list existing agents: {e}")
+
     results = {}
 
     print(f"🚀 Deploying {len(agent_configs)} agents in parallel...")
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(agent_configs)) as executor:
-        futures = {executor.submit(create_agent, config, custom_domain, service_urls): config for config in agent_configs}
+        futures = {executor.submit(create_agent, config, custom_domain, service_urls, existing_agents_lookup): config for config in agent_configs}
         for future in concurrent.futures.as_completed(futures):
             config = futures[future]
             try:

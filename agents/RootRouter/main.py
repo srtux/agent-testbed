@@ -86,44 +86,48 @@ async def consult_flight_specialist(request: FlightRequest) -> dict:
     if profile_mcp_url.endswith("/mcp/call_tool"):
         profile_mcp_url = profile_mcp_url.replace("/mcp/call_tool", "/sse")
 
-    logger.info(f"Checking user profile via FastMCP for user: {request.user_id}, destination: {request.destination}")
+    # Support dictionary fallback if Pydantic validation was skipped/failed on Agent Engine
+    is_dict = isinstance(request, dict)
+    user_id = request.get("user_id", "") if is_dict else getattr(request, "user_id", "")
+    destination = request.get("destination", "") if is_dict else getattr(request, "destination", "")
+
+    logger.info(f"Checking user profile via FastMCP for user: {user_id}, destination: {destination}")
 
     profile_data = {"preferences": "Unknown"}
-    # Trace edge: AE -> CR MCP using official FastMCP Session
-    try:
-        async with sse_client(profile_mcp_url) as (read, write):
-            async with ClientSession(read, write) as session:
-                await session.initialize()
-                meta = {}
-                inject(meta)  # Propagate W3C traceparent into the _meta object
+    if user_id:
+        try:
+            async with sse_client(profile_mcp_url) as (read, write):
+                async with ClientSession(read, write) as session:
+                    await session.initialize()
+                    meta = {}
+                    inject(meta)  # Propagate W3C traceparent into the _meta object
 
-                res = await session.call_tool(
-                    "get_user_preferences",
-                    arguments={"user_id": request.user_id},
-                    meta=meta
-                )
-                if res.content and len(res.content) > 0:
-                    profile_data = res.content[0].text
-                    if isinstance(profile_data, str):
-                        try:
-                            parsed_data = json.loads(profile_data)
-                            if isinstance(parsed_data, dict):
-                                profile_data = parsed_data
-                            else:
-                                profile_data = {"data": parsed_data}
-                        except Exception:
-                            profile_data = {"raw_text": profile_data}
-    except Exception as e:
-        logger.warning(f"FastMCP call failed: {e}")
-        profile_data = {"error": str(e)}
-    request_dict = request.model_dump()
+                    res = await session.call_tool(
+                        "get_user_preferences",
+                        arguments={"user_id": user_id},
+                        meta=meta
+                    )
+                    if res.content and len(res.content) > 0:
+                        profile_data = res.content[0].text
+                        if isinstance(profile_data, str):
+                            try:
+                                parsed_data = json.loads(profile_data)
+                                if isinstance(parsed_data, dict):
+                                    profile_data = parsed_data
+                                else:
+                                    profile_data = {"data": parsed_data}
+                            except Exception:
+                                profile_data = {"raw_text": profile_data}
+        except Exception as e:
+            logger.warning(f"FastMCP call failed: {e}")
+            profile_data = {"error": str(e)}
+
+    request_dict = request if is_dict else request.model_dump()
     request_dict["profile_context"] = profile_data
 
-    logger.info(f"Delegating to FlightSpecialist for destination: {request.destination}")
+    logger.info(f"Delegating to FlightSpecialist for destination: {destination}")
 
-    # Trace edge: AE -> CR
     async with httpx.AsyncClient() as client:
-        # In a real environment, we would obtain an OIDC token here for auth
         response = await client.post(
             flight_specialist_url,
             json=request_dict,
@@ -145,7 +149,7 @@ agent = LlmAgent(
     2. Classify the request type using the IntentClassifier tool.
     3. For new bookings, delegate to the Flight Specialist via consult_flight_specialist.
 
-    Ensure you gather the user's information and trigger the master itinerary planner correctly.
+    CRITICAL: Always look for the [System Context: The current user's ID is '...'] in the prompt and pass that ID as the `user_id` argument when calling `consult_flight_specialist`. Do not leave it empty.
     Do not ask the user for their departure airport if it's missing; just pass an empty string to the tool.""",
     tools=[extract_travel_intent, AgentTool(agent=intent_classifier), consult_flight_specialist],
 )

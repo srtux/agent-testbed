@@ -79,7 +79,12 @@ class BookingRequest(BaseModel):
 
 async def finalize_bookings(request: BookingRequest) -> dict:
     """Finalizes all reservations using the GKE Inventory MCP server."""
-    logger.info(f"Finalizing bookings for user: {request.user_id}")
+    # Support dictionary fallback if Pydantic validation was skipped/failed on Agent Engine
+    is_dict = isinstance(request, dict)
+    user_id = request.get("user_id", "") if is_dict else getattr(request, "user_id", "")
+    request_dict = request if is_dict else request.model_dump()
+
+    logger.info(f"Finalizing bookings for user: {user_id}")
 
     inventory_mcp_url = os.environ.get("INVENTORY_MCP_URL", "http://localhost:8091/sse")
 
@@ -96,7 +101,7 @@ async def finalize_bookings(request: BookingRequest) -> dict:
 
                 res = await session.call_tool(
                     "commit_booking",
-                    arguments=request.model_dump(),
+                    arguments=request_dict,
                     meta=meta
                 )
                 if res.content and len(res.content) > 0:
