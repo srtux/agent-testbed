@@ -1,6 +1,7 @@
 import os
 import json
 import logging
+import uuid
 
 from testbed_utils.config import DEFAULT_PRO_MODEL, DEFAULT_FLASH_MODEL
 
@@ -148,7 +149,7 @@ async def chat_endpoint(request: OrchestrationRequest):
     prompt = f"Please finalize the following itinerary and summarize: {request.itinerary_details} for user {request.user_id}"
 
     final_response = None
-    async for event in runner.run_async(user_id=request.user_id, session_id="default", new_message=types.Content(role="user", parts=[types.Part.from_text(text=prompt)])):
+    async for event in runner.run_async(user_id=request.user_id, session_id=str(uuid.uuid4()), new_message=types.Content(role="user", parts=[types.Part.from_text(text=prompt)])):
         if hasattr(event, "content") and event.content:
             for part in event.content.parts:
                 if part.text:

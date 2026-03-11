@@ -30,6 +30,14 @@ resource "google_cloud_run_v2_service" "flight_specialist" {
         value = "gen_ai_latest_experimental"
       }
       env {
+        name  = "OTEL_EXPORTER_OTLP_ENDPOINT"
+        value = "https://telemetry.googleapis.com"
+      }
+      env {
+        name  = "OTEL_SERVICE_NAME"
+        value = "flight-specialist"
+      }
+      env {
         name  = "HOTEL_SPECIALIST_URL"
         value = "${local.hotel_specialist_url}/chat"
       }
@@ -73,6 +81,14 @@ resource "google_cloud_run_v2_service" "weather_specialist" {
         value = "gen_ai_latest_experimental"
       }
       env {
+        name  = "OTEL_EXPORTER_OTLP_ENDPOINT"
+        value = "https://telemetry.googleapis.com"
+      }
+      env {
+        name  = "OTEL_SERVICE_NAME"
+        value = "weather-specialist"
+      }
+      env {
         name  = "INVENTORY_MCP_URL"
         value = "${local.inventory_mcp_url}/sse"
       }
@@ -114,6 +130,14 @@ resource "google_cloud_run_v2_service" "profile_mcp" {
       env {
         name  = "OTEL_SEMCONV_STABILITY_OPT_IN"
         value = "gen_ai_latest_experimental"
+      }
+      env {
+        name  = "OTEL_EXPORTER_OTLP_ENDPOINT"
+        value = "https://telemetry.googleapis.com"
+      }
+      env {
+        name  = "OTEL_SERVICE_NAME"
+        value = "profile-mcp"
       }
     }
   }

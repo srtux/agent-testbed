@@ -91,8 +91,17 @@ def _setup_oidc_auth(requests_inst, httpx_inst):
         except Exception:
             return None
 
-    # For Requests
-    requests_inst.instrument()
+    # For Requests — inject OIDC tokens via request_hook (used by traffic generator)
+    def requests_request_hook(span, request):
+        url = request.url
+        if _needs_oidc_auth(url):
+            parts = url.split('/')
+            audience = f"{parts[0]}//{parts[2]}"
+            token = get_oidc_token(audience)
+            if token:
+                request.headers["Authorization"] = f"Bearer {token}"
+
+    requests_inst.instrument(request_hook=requests_request_hook)
 
     # For HTTPX (ADK uses this)
     def httpx_request_hook(span, request):
