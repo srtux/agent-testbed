@@ -22,6 +22,8 @@ dependencies = [
     "pytest-asyncio",
     "absl-py>=2.4.0",
     "python-dotenv>=1.2.2",
+    "google-auth",
+    "grpcio",
 ]
 
 [project.scripts]
