@@ -44,6 +44,10 @@ resource "kubernetes_deployment" "hotel_specialist" {
             value = "hotel-specialist"
           }
           env {
+            name  = "GOOGLE_CLOUD_PROJECT"
+            value = var.project_id
+          }
+          env {
             name  = "INVENTORY_MCP_URL"
             value = "http://gke-inventory-mcp-service/sse"
           }
@@ -153,6 +157,10 @@ resource "kubernetes_deployment" "car_rental_specialist" {
             value = "car-rental-specialist"
           }
           env {
+            name  = "GOOGLE_CLOUD_PROJECT"
+            value = var.project_id
+          }
+          env {
             name  = "PROFILE_MCP_URL"
             value = "${local.profile_mcp_url}/sse"
           }
@@ -256,6 +264,14 @@ resource "kubernetes_deployment" "inventory_mcp" {
           env {
             name  = "OTEL_SERVICE_NAME"
             value = "inventory-mcp"
+          }
+          env {
+            name  = "GOOGLE_CLOUD_PROJECT"
+            value = var.project_id
+          }
+          env {
+            name  = "OTEL_LOG_LEVEL"
+            value = "debug"
           }
 
           resources {

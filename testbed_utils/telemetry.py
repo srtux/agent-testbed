@@ -74,7 +74,15 @@ def setup_telemetry(force_cloud_trace: bool = False):
 
         if force_cloud_trace or enable_manual_trace:
             from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
-            provider = TracerProvider()
+            from opentelemetry.sdk.resources import Resource
+            project_id = os.environ.get("GOOGLE_CLOUD_PROJECT", "")
+            
+            provider = TracerProvider(
+                resource=Resource(attributes={
+                    "service.name": os.environ.get("OTEL_SERVICE_NAME", "unknown_service"),
+                    "gcp.project_id": project_id
+                })
+            )
             exporter = _create_authenticated_exporter(OTLPSpanExporter)
             processor = BatchSpanProcessor(exporter)
             provider.add_span_processor(processor)
