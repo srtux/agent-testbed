@@ -22,7 +22,7 @@ resource "kubernetes_deployment" "hotel_specialist" {
         }
       }
       spec {
-        service_account_name = "inventory-mcp-ksah"
+        service_account_name = "gke-agents-ksa"
         container {
           name  = "hotel-specialist"
           image = var.hotel_specialist_image
@@ -121,7 +121,7 @@ resource "kubernetes_deployment" "car_rental_specialist" {
         }
       }
       spec {
-        service_account_name = "inventory-mcp-ksah"
+        service_account_name = "gke-agents-ksa"
         container {
           name  = "car-rental-specialist"
           image = var.car_rental_specialist_image
@@ -216,7 +216,7 @@ resource "kubernetes_deployment" "inventory_mcp" {
         }
       }
       spec {
-        service_account_name = "inventory-mcp-ksah"
+        service_account_name = "inventory-mcp-ksa"
         container {
           name  = "inventory-mcp"
           image = var.inventory_mcp_image
@@ -283,10 +283,12 @@ resource "kubernetes_service" "inventory_mcp" {
   }
 }
 
-# Ensure the KSA exists
-resource "kubernetes_service_account" "inventory_mcp_ksah" {
+# --- Kubernetes Service Accounts ---
+
+# KSA for Inventory MCP (maps to inventory_mcp_gsa via Workload Identity)
+resource "kubernetes_service_account" "inventory_mcp_ksa" {
   metadata {
-    name      = "inventory-mcp-ksah"
+    name      = "inventory-mcp-ksa"
     namespace = "default"
     annotations = {
       "iam.gke.io/gcp-service-account" = google_service_account.inventory_mcp_gsa.email
@@ -294,5 +296,19 @@ resource "kubernetes_service_account" "inventory_mcp_ksah" {
   }
   depends_on = [
     google_service_account_iam_member.inventory_mcp_workload_identity
+  ]
+}
+
+# KSA for Hotel and Car Rental agents (maps to gke_agents_gsa via Workload Identity)
+resource "kubernetes_service_account" "gke_agents_ksa" {
+  metadata {
+    name      = "gke-agents-ksa"
+    namespace = "default"
+    annotations = {
+      "iam.gke.io/gcp-service-account" = google_service_account.gke_agents_gsa.email
+    }
+  }
+  depends_on = [
+    google_service_account_iam_member.gke_agents_workload_identity
   ]
 }

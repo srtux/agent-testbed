@@ -270,7 +270,7 @@ The deployment utilizes a Hybrid Serverless & Kubernetes topology designed to st
 * **Cloud Run:** Drives stateless components (`FlightSpecialist`, `WeatherSpecialist`, `Profile_MCP`). Built using Standard container sets on serverless NEG binds.
 * **GKE (Google Kubernetes Engine):** Hosts heavier internal state loads (`HotelSpecialist`, `CarRental`, `Inventory_MCP`). Scaled linearly behind Standard Load-Balancing nodes.
 
-### 2. Networking Routing (Mode Discrepency)
+### 2. Networking Routing (Mode Discrepancy)
 
 #### **🔵 Mode 1: Custom Domain Mode (Production Grade)**
 Uses global Host-Based HTTPS routing with conditional certificate hooks:

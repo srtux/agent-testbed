@@ -20,10 +20,16 @@ resource "google_service_account" "test_runner" {
   display_name = "Travel Concierge Test Runner"
 }
 
-# GKE Workload Identity GSA
+# GKE Workload Identity GSA for Inventory MCP
 resource "google_service_account" "inventory_mcp_gsa" {
   account_id   = "inventory-mcp-gsa"
   display_name = "Inventory MCP GSA for Workload Identity"
+}
+
+# Separate GSA for Hotel and Car Rental agents on GKE
+resource "google_service_account" "gke_agents_gsa" {
+  account_id   = "gke-agents-gsa"
+  display_name = "GKE Agents GSA for Hotel and Car Rental Specialists"
 }
 
 # --- Per-service Cloud Run invocation bindings (least privilege) ---
@@ -37,7 +43,16 @@ resource "google_cloud_run_v2_service_iam_member" "flight_specialist_invoke_weat
   member   = "serviceAccount:${google_service_account.flight_specialist.email}"
 }
 
-# GKE GSA -> Profile_MCP (Cloud Run) for CarRentalSpecialist
+# GKE Agents GSA -> Profile_MCP (Cloud Run) for CarRentalSpecialist
+resource "google_cloud_run_v2_service_iam_member" "gke_agents_invoke_profile_mcp" {
+  project  = var.project_id
+  location = var.region
+  name     = google_cloud_run_v2_service.profile_mcp.name
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${google_service_account.gke_agents_gsa.email}"
+}
+
+# Inventory MCP GSA -> Profile_MCP (Cloud Run) — kept for backward compatibility
 resource "google_cloud_run_v2_service_iam_member" "gke_gsa_invoke_profile_mcp" {
   project  = var.project_id
   location = var.region
@@ -68,6 +83,7 @@ resource "google_project_iam_member" "test_runner_ai_user" {
 
 # --- GKE Workload Identity Configuration ---
 
+# Inventory MCP GSA permissions
 resource "google_project_iam_member" "inventory_mcp_trace_agent" {
   project = var.project_id
   role    = "roles/cloudtrace.agent"
@@ -83,5 +99,24 @@ resource "google_project_iam_member" "inventory_mcp_ai_user" {
 resource "google_service_account_iam_member" "inventory_mcp_workload_identity" {
   service_account_id = google_service_account.inventory_mcp_gsa.name
   role               = "roles/iam.workloadIdentityUser"
-  member             = "serviceAccount:${var.project_id}.svc.id.goog[default/inventory-mcp-ksah]"
+  member             = "serviceAccount:${var.project_id}.svc.id.goog[default/inventory-mcp-ksa]"
+}
+
+# GKE Agents GSA permissions (for HotelSpecialist and CarRentalSpecialist)
+resource "google_project_iam_member" "gke_agents_trace_agent" {
+  project = var.project_id
+  role    = "roles/cloudtrace.agent"
+  member  = "serviceAccount:${google_service_account.gke_agents_gsa.email}"
+}
+
+resource "google_project_iam_member" "gke_agents_ai_user" {
+  project = var.project_id
+  role    = "roles/aiplatform.user"
+  member  = "serviceAccount:${google_service_account.gke_agents_gsa.email}"
+}
+
+resource "google_service_account_iam_member" "gke_agents_workload_identity" {
+  service_account_id = google_service_account.gke_agents_gsa.name
+  role               = "roles/iam.workloadIdentityUser"
+  member             = "serviceAccount:${var.project_id}.svc.id.goog[default/gke-agents-ksa]"
 }

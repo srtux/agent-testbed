@@ -2,6 +2,8 @@ import os
 import json
 import logging
 
+from testbed_utils.config import DEFAULT_PRO_MODEL, DEFAULT_FLASH_MODEL
+
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
@@ -12,7 +14,6 @@ from google.adk.agents import LlmAgent
 from google.adk.runners import InMemoryRunner
 from google.adk.tools.agent_tool import AgentTool
 from fastapi import FastAPI
-
 
 from mcp.client.sse import sse_client
 from mcp.client.session import ClientSession
@@ -60,7 +61,7 @@ async def format_itinerary(user_id: str, destination: str, flight_details: str,
 
 itinerary_validator = LlmAgent(
     name="ItineraryValidator",
-    model="gemini-2.5-flash",
+    model=DEFAULT_FLASH_MODEL,
     description="Validate a travel itinerary for completeness and consistency before final booking.",
     static_instruction="""You validate travel itineraries. Check that all required components
     are present: flight, hotel, car rental, dates, and total cost.
@@ -115,9 +116,10 @@ async def finalize_bookings(request: BookingRequest) -> dict:
 
     return {"status": "success", "confirmation": "CNF-12345"}
 
+
 agent = LlmAgent(
     name="BookingOrchestrator",
-    model="gemini-2.5-pro",
+    model=DEFAULT_PRO_MODEL,
     static_instruction="""You are the Booking Orchestrator.
     1. Calculate the total trip cost using the calculate_trip_cost tool.
     2. Format the itinerary using the format_itinerary tool.
@@ -127,8 +129,6 @@ agent = LlmAgent(
     tools=[calculate_trip_cost, format_itinerary, AgentTool(agent=itinerary_validator), finalize_bookings],
 )
 
-# For Vertex AI Agent Engine, we expose `agent`.
-# If we want to simulate an A2A HTTP endpoint natively, we wrap it in FastAPI.
 runner = InMemoryRunner(agent=agent)
 runner.auto_create_session = True
 app = FastAPI()
@@ -137,6 +137,10 @@ app = FastAPI()
 class OrchestrationRequest(BaseModel):
     user_id: str
     itinerary_details: str
+
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
 
 @app.post("/chat")
 async def chat_endpoint(request: OrchestrationRequest):

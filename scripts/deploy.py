@@ -148,6 +148,7 @@ def ensure_terraform_imports(terraform_dir, project_id, tf_vars, log_file=None):
         "google_service_account.profile_mcp": "profile-mcp",
         "google_service_account.test_runner": "travel-test-runner",
         "google_service_account.inventory_mcp_gsa": "inventory-mcp-gsa",
+        "google_service_account.gke_agents_gsa": "gke-agents-gsa",
     }
 
     for tf_name, sa_id in sas.items():

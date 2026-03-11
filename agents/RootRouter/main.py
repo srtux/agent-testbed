@@ -3,6 +3,8 @@ import re
 import json
 import logging
 
+from testbed_utils.config import DEFAULT_PRO_MODEL, DEFAULT_FLASH_MODEL
+
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
@@ -57,7 +59,7 @@ async def extract_travel_intent(prompt: str) -> dict:
 
 intent_classifier = LlmAgent(
     name="IntentClassifier",
-    model="gemini-2.5-flash",
+    model=DEFAULT_FLASH_MODEL,
     description="Classify user travel request type: new_booking, modification, inquiry, or cancellation.",
     static_instruction="""You classify travel requests into exactly one category:
     - new_booking: User wants to book a new trip
@@ -79,7 +81,6 @@ class FlightRequest(BaseModel):
 
 async def consult_flight_specialist(request: FlightRequest) -> dict:
     """Delegates the flight booking task to the FlightSpecialist sub-agent."""
-    # This URL would typically come from environment variables
     flight_specialist_url = os.environ.get("FLIGHT_SPECIALIST_URL", "http://localhost:8082/chat")
     profile_mcp_url = os.environ.get("PROFILE_MCP_URL", "http://localhost:8090/sse")
 
@@ -139,11 +140,9 @@ async def consult_flight_specialist(request: FlightRequest) -> dict:
         return response.json()
 
 
-# --- Agent Definition ---
-
 agent = LlmAgent(
     name="RootRouter",
-    model="gemini-2.5-pro",
+    model=DEFAULT_PRO_MODEL,
     static_instruction="""You are the Root Router for an Enterprise Travel Concierge.
     1. First, extract the travel intent from the user's request using extract_travel_intent.
     2. Classify the request type using the IntentClassifier tool.
@@ -154,7 +153,6 @@ agent = LlmAgent(
     tools=[extract_travel_intent, AgentTool(agent=intent_classifier), consult_flight_specialist],
 )
 
-# For Vertex AI Agent Engine, you typically don't need to wrap in FastAPI if using the platform's native endpoints.
 runner = InMemoryRunner(agent=agent)
 runner.auto_create_session = True
 app = FastAPI()
@@ -162,6 +160,10 @@ app = FastAPI()
 class RouterRequest(BaseModel):
     user_id: str
     prompt: str
+
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
 
 @app.post("/chat")
 async def chat_endpoint(request: RouterRequest):
