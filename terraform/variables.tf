@@ -81,3 +81,9 @@ variable "vpc_name" {
   description = "The VPC network name to use for Cloud Run Direct VPC egress. Required if vpc_subnetwork is set."
   default     = ""
 }
+
+variable "traffic_schedule" {
+  type        = string
+  description = "Cron schedule for the traffic generator Cloud Scheduler job (default: every 5 minutes)"
+  default     = "*/5 * * * *"
+}

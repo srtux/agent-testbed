@@ -23,7 +23,9 @@ dependencies = [
     "absl-py>=2.4.0",
     "python-dotenv>=1.2.2",
     "google-auth",
+    "google-api-python-client",
     "grpcio",
+    "requests",
 ]
 
 [project.scripts]
@@ -32,6 +34,8 @@ run-all = "scripts.run_all:main"
 deploy-agent-engine = "scripts.deploy_agent_engine:main"
 test-local = "scripts.test_runner:local"
 test-remote = "scripts.test_runner:remote"
+traffic-loop = "scripts.traffic_loop:main"
+verify-traces = "scripts.test_runner:verify_traces"
 
 [build-system]
 requires = ["hatchling"]
