@@ -122,7 +122,8 @@ async def health():
 @app.post("/chat")
 async def chat_endpoint(request: WeatherRequest):
     logger.info(f"Weather Specialist checking conditions for {request.destination}")
-    prompt = f"Check weather for {request.destination}. Current itinerary: {request.itinerary_so_far}. User: {request.user_id}. Finalize with Booking Orchestrator."
+    itinerary_context = (request.itinerary_so_far or "")[:2000]
+    prompt = f"Check weather for {request.destination}. Current itinerary: {itinerary_context}. User: {request.user_id}. Finalize with Booking Orchestrator."
 
     final_response = None
     async for event in runner.run_async(user_id=request.user_id, session_id=str(uuid.uuid4()), new_message=types.Content(role="user", parts=[types.Part.from_text(text=prompt)])):

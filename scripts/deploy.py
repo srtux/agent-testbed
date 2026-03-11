@@ -200,6 +200,11 @@ def get_terraform_output(terraform_dir, output_name):
 
 def deploy_agent_engine_task(root_dir, project_id, region, custom_domain, log_path):
     """Deploys Agent Engine agents. Returns dict of agent outputs from JSON file."""
+    terraform_dir = root_dir / "terraform"
+    psc_attachment = get_terraform_output(terraform_dir, "psc_network_attachment")
+    vpc_name = get_terraform_output(terraform_dir, "vpc_name")
+    vpc_project = get_terraform_output(terraform_dir, "vpc_project_id")
+
     with open(log_path, "w") as f:
         f.write("🤖 Deploying Agent Engine...\n")
         agent_deploy_command = [
@@ -210,6 +215,14 @@ def deploy_agent_engine_task(root_dir, project_id, region, custom_domain, log_pa
         ]
         if custom_domain:
             agent_deploy_command.extend(["--custom_domain", custom_domain])
+        
+        if psc_attachment:
+            agent_deploy_command.extend(["--psc_network_attachment", psc_attachment])
+        if vpc_name:
+            agent_deploy_command.extend(["--vpc_name", vpc_name])
+        if vpc_project:
+            agent_deploy_command.extend(["--vpc_project_id", vpc_project])
+
         run_command(agent_deploy_command, cwd=root_dir, log_file=f)
 
     # Read the outputs JSON written by deploy_agent_engine.py

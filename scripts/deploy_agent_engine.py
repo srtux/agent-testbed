@@ -179,7 +179,7 @@ def create(custom_domain, service_urls=None, psc_network_attachment=None, vpc_pr
     """Deploy all configured ADK agents in parallel. Returns dict of agent_name -> resource_name."""
     agent_configs = [
         {"name": "RootRouter", "dir": "agents/RootRouter"},
-        {"name": "BookingOrchestrator", "dir": "agents/BookingOrchestrator"}
+        # {"name": "BookingOrchestrator", "dir": "agents/BookingOrchestrator"}
     ]
 
 
@@ -196,8 +196,8 @@ def create(custom_domain, service_urls=None, psc_network_attachment=None, vpc_pr
 
     if not existing_agents_lookup:
         try:
-            remote_agents = agent_engines.list()
-            existing_agents_lookup = {agent.display_name: agent.name for agent in remote_agents}
+            remote_agents = agent_engines.AgentEngine.list()
+            existing_agents_lookup = {agent.display_name: agent.resource_name for agent in remote_agents if getattr(agent, "display_name", "")}
             print(f"Found {len(existing_agents_lookup)} existing agents via list().")
         except Exception as e:
             print(f"Warning: Could not list existing agents: {e}")

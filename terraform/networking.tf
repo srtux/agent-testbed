@@ -12,7 +12,7 @@ resource "google_compute_global_address" "cloud_run_lb" {
 # --- Serverless NEGs for Cloud Run ---
 
 resource "google_compute_region_network_endpoint_group" "flight_specialist" {
-  count                 = local.use_custom_domain ? 1 : 0
+  count                 = 1
   name                  = "flight-specialist-neg"
   network_endpoint_type = "SERVERLESS"
   region                = var.region
@@ -24,7 +24,7 @@ resource "google_compute_region_network_endpoint_group" "flight_specialist" {
 }
 
 resource "google_compute_region_network_endpoint_group" "weather_specialist" {
-  count                 = local.use_custom_domain ? 1 : 0
+  count                 = 1
   name                  = "weather-specialist-neg"
   network_endpoint_type = "SERVERLESS"
   region                = var.region
@@ -36,7 +36,7 @@ resource "google_compute_region_network_endpoint_group" "weather_specialist" {
 }
 
 resource "google_compute_region_network_endpoint_group" "profile_mcp" {
-  count                 = local.use_custom_domain ? 1 : 0
+  count                 = 1
   name                  = "profile-mcp-neg"
   network_endpoint_type = "SERVERLESS"
   region                = var.region

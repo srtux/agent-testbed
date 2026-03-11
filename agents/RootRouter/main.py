@@ -81,7 +81,7 @@ class FlightRequest(BaseModel):
     departure_airport: str = Field(default="", description="The departure airport code if known")
     dates: str = Field(description="The travel dates")
 
-async def consult_flight_specialist(request: FlightRequest) -> dict:
+async def consult_flight_specialist(user_id: str, destination: str, dates: str, departure_airport: str = "") -> dict:
     """Delegates flight search, availability check, and booking tasks to the FlightSpecialist sub-agent."""
     flight_specialist_url = os.environ.get("FLIGHT_SPECIALIST_URL", "http://localhost:8082/chat")
     profile_mcp_url = os.environ.get("PROFILE_MCP_URL", "http://localhost:8090/sse")
@@ -89,10 +89,14 @@ async def consult_flight_specialist(request: FlightRequest) -> dict:
     if profile_mcp_url.endswith("/mcp/call_tool"):
         profile_mcp_url = profile_mcp_url.replace("/mcp/call_tool", "/sse")
 
-    # Support dictionary fallback if Pydantic validation was skipped/failed on Agent Engine
-    is_dict = isinstance(request, dict)
-    user_id = request.get("user_id", "") if is_dict else getattr(request, "user_id", "")
-    destination = request.get("destination", "") if is_dict else getattr(request, "destination", "")
+    logger.warning(f"[DEBUG_TOOL] consult_flight_specialist START. user_id={user_id}")
+    # Create request_dict for downstream delegation upfront
+    request_dict = {
+        "user_id": user_id,
+        "destination": destination,
+        "dates": dates,
+        "departure_airport": departure_airport
+    }
 
     logger.info(f"Checking user profile via FastMCP for user: {user_id}, destination: {destination}")
 
@@ -122,27 +126,46 @@ async def consult_flight_specialist(request: FlightRequest) -> dict:
                             except Exception:
                                 profile_data = {"raw_text": profile_data}
         except Exception as e:
-            logger.warning(f"FastMCP call failed: {e}")
+            logger.warning(f"[DEBUG_TOOL] FastMCP call failed: {e}")
             profile_data = {"error": str(e)}
+    logger.warning(f"[DEBUG_TOOL] Profile data gathered: {profile_data}")
 
-    request_dict = request if is_dict else request.model_dump()
+    # request_dict already created above
     request_dict["profile_context"] = profile_data
 
     logger.info(f"Delegating to FlightSpecialist for destination: {destination}")
 
+    logger.warning(f"[DEBUG_TOOL] Calling FlightSpecialist at {flight_specialist_url}")
     async with httpx.AsyncClient() as client:
         response = await client.post(
             flight_specialist_url,
             json=request_dict,
             timeout=60.0
         )
-        if response.status_code != 200:
-            logger.error(f"Failed to delegate to FlightSpecialist. Status: {response.status_code}, Response: {response.text}")
-        response.raise_for_status()
-        return response.json()
+    logger.warning(f"[DEBUG_TOOL] FlightSpecialist response status: {response.status_code}")
+    if response.status_code != 200:
+        logger.error(f"Failed to delegate to FlightSpecialist. Status: {response.status_code}, Response: {response.text}")
+    response.raise_for_status()
+    return response.json()
 
 
-agent = LlmAgent(
+class DebugLlmAgent(LlmAgent):
+    def stream_query(self, message: str, **kwargs):
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.warning(f"[DEBUG_AGENT] stream_query INVOKED. message: {message}, kwargs: {kwargs}")
+        try:
+            for event in super().stream_query(message=message, **kwargs):
+                logger.warning(f"[DEBUG_AGENT] Yielding event type: {type(event)}")
+                yield event
+        except Exception as e:
+            logger.warning(f"[DEBUG_AGENT] stream_query CRASHED: {e}")
+            raise e
+        logger.warning(f"[DEBUG_AGENT] stream_query FINISHED")
+
+
+
+agent = DebugLlmAgent(
     name="RootRouter",
     model=DEFAULT_PRO_MODEL,
     static_instruction="""You are the Root Router for an Enterprise Travel Concierge.
@@ -150,7 +173,7 @@ agent = LlmAgent(
     2. Classify the request type using the IntentClassifier tool.
     3. For new bookings or flight search requests, delegate to the Flight Specialist via consult_flight_specialist.
 
-    CRITICAL: Always look for the [System Context: The current user's ID is '...'] in the prompt and pass that ID as the `user_id` argument when calling `consult_flight_specialist`. Do not leave it empty.
+    CRITICAL: You MUST use the exact user_id provided in the [System Context] for all tool calls (especially `consult_flight_specialist`).
     Do not ask the user for their departure airport if it's missing; just pass an empty string to the tool.
     DO NOT assume any tools exist other than the ones provided.""" ,
     tools=[extract_travel_intent, AgentTool(agent=intent_classifier), consult_flight_specialist],
@@ -175,6 +198,7 @@ async def chat_endpoint(request: RouterRequest):
     final_response = None
     session_id = str(uuid.uuid4())
     prompt_text = f"[System Context: The current user's ID is '{request.user_id}']\n{request.prompt}"
+    
     async for event in runner.run_async(user_id=request.user_id, session_id=session_id, new_message=types.Content(role="user", parts=[types.Part.from_text(text=prompt_text)])):
         if hasattr(event, "content") and event.content:
             for part in event.content.parts:

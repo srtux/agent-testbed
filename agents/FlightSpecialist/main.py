@@ -142,7 +142,8 @@ async def chat_endpoint(request: ChatRequest):
     # Log with context
     logger.info(f"Received request to process flights for {request.destination} (User: {request.user_id})")
 
-    prompt = f"User {request.user_id} wants a flight from {request.departure_airport} to {request.destination} for {request.dates}. Preferences context: {json.dumps(request.profile_context)}. Coordinate with Hotel and Weather specialists."
+    pref_context = json.dumps(request.profile_context or {})[:1000]
+    prompt = f"User {request.user_id} wants a flight from {request.departure_airport} to {request.destination} for {request.dates}. Preferences context: {pref_context}. Coordinate with Hotel and Weather specialists."
 
     # Run the agent over the prompt
     # The ADK run_async will create its own spans, appropriately as children

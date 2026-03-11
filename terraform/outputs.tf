@@ -59,3 +59,23 @@ output "mode" {
   value       = local.use_custom_domain ? "custom_domain" : "direct"
   description = "Deployment mode: custom_domain (LBs + SSL) or direct (native URLs + LoadBalancer IPs)."
 }
+
+output "bastion_ssh_command" {
+  value       = "gcloud compute ssh ${google_compute_instance.bastion.name} --tunnel-through-iap --zone ${google_compute_instance.bastion.zone} --project ${var.project_id} -- -D 8888 -N"
+  description = "Command to establish a SOCKS5 proxy tunnel to the Bastion host."
+}
+
+output "psc_network_attachment" {
+  value       = google_compute_network_attachment.reasoning_engine.id
+  description = "The PSC Network Attachment ID for Agent Engine egress"
+}
+
+output "vpc_name" {
+  value       = element(split("/", data.google_container_cluster.primary.network), length(split("/", data.google_container_cluster.primary.network)) - 1)
+  description = "The short name of the VPC network"
+}
+
+output "vpc_project_id" {
+  value       = var.project_id
+  description = "Project ID containing the VPC"
+}
