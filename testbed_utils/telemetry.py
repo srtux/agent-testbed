@@ -12,6 +12,45 @@ def is_otel_initialized() -> bool:
     except (ImportError, Exception):
         return False
 
+def _create_authenticated_exporter(OTLPSpanExporter):
+    """Creates an OTLPSpanExporter with Google Cloud ADC credentials.
+
+    The generic OTLPSpanExporter does NOT handle Google Cloud authentication
+    automatically. When targeting telemetry.googleapis.com, we must provide
+    explicit gRPC channel credentials using Application Default Credentials.
+
+    See: https://docs.google.com/stackdriver/docs/reference/telemetry/overview
+    """
+    endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+
+    if "telemetry.googleapis.com" not in endpoint:
+        # Not targeting Google Cloud Telemetry API — use default (e.g., local collector)
+        return OTLPSpanExporter()
+
+    try:
+        import google.auth
+        import google.auth.transport.requests
+        import google.auth.transport.grpc
+        import grpc
+
+        credentials, project = google.auth.default()
+        request = google.auth.transport.requests.Request()
+        auth_metadata_plugin = google.auth.transport.grpc.AuthMetadataPlugin(
+            credentials=credentials, request=request
+        )
+        channel_creds = grpc.composite_channel_credentials(
+            grpc.ssl_channel_credentials(),
+            grpc.metadata_call_credentials(auth_metadata_plugin),
+        )
+        return OTLPSpanExporter(
+            endpoint="telemetry.googleapis.com:443",
+            credentials=channel_creds,
+        )
+    except Exception as e:
+        print(f"Warning: Could not create authenticated exporter, falling back to default: {e}", file=sys.stderr)
+        return OTLPSpanExporter()
+
+
 def setup_telemetry(force_cloud_trace: bool = False):
     """
     Initializes OpenTelemetry for ADK Agents and FastAPI services.
@@ -36,7 +75,8 @@ def setup_telemetry(force_cloud_trace: bool = False):
         if force_cloud_trace or enable_manual_trace:
             from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
             provider = TracerProvider()
-            processor = BatchSpanProcessor(OTLPSpanExporter())
+            exporter = _create_authenticated_exporter(OTLPSpanExporter)
+            processor = BatchSpanProcessor(exporter)
             provider.add_span_processor(processor)
             trace.set_tracer_provider(provider)
 
