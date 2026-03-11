@@ -83,7 +83,9 @@ resource "kubernetes_service" "hotel_specialist" {
     name = "gke-hotel-specialist-service"
     annotations = local.use_custom_domain ? {
       "cloud.google.com/neg" = jsonencode({ ingress = true })
-    } : {}
+    } : {
+      "cloud.google.com/load-balancer-type" = "Internal"
+    }
   }
   spec {
     selector = {
@@ -178,7 +180,9 @@ resource "kubernetes_service" "car_rental_specialist" {
     name = "gke-car-rental-service"
     annotations = local.use_custom_domain ? {
       "cloud.google.com/neg" = jsonencode({ ingress = true })
-    } : {}
+    } : {
+      "cloud.google.com/load-balancer-type" = "Internal"
+    }
   }
   spec {
     selector = {
@@ -269,7 +273,9 @@ resource "kubernetes_service" "inventory_mcp" {
     name = "gke-inventory-mcp-service"
     annotations = local.use_custom_domain ? {
       "cloud.google.com/neg" = jsonencode({ ingress = true })
-    } : {}
+    } : {
+      "cloud.google.com/load-balancer-type" = "Internal"
+    }
   }
   spec {
     selector = {

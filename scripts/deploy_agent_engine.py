@@ -26,6 +26,9 @@ flags.DEFINE_string("location", None, "GCP location.")
 flags.DEFINE_string("bucket", None, "GCP bucket.")
 flags.DEFINE_string("resource_id", None, "ReasoningEngine resource ID.")
 flags.DEFINE_string("custom_domain", None, "Base custom domain for stable service URLs.")
+flags.DEFINE_string("psc_network_attachment", None, "PSC Network Attachment for VPC egress.")
+flags.DEFINE_string("vpc_project_id", None, "Project ID containing the VPC.")
+flags.DEFINE_string("vpc_name", None, "VPC network name.")
 
 flags.DEFINE_bool("list", False, "List all agents.")
 flags.DEFINE_bool("create", False, "Creates new agents.")
@@ -46,7 +49,7 @@ def manual_find_packages(base_dir):
     return packages
 
 
-def create_agent(config, custom_domain, service_urls=None, existing_agents_lookup=None) -> None:
+def create_agent(config, custom_domain, service_urls=None, existing_agents_lookup=None, psc_network_attachment=None, vpc_project_id=None, vpc_name=None) -> None:
     """Creates an agent engine for the given agent."""
     import importlib.util
     import cloudpickle
@@ -123,6 +126,24 @@ def create_agent(config, custom_domain, service_urls=None, existing_agents_looku
         **urls,
     }
 
+    # Config for Private Service Connect Interface
+    psc_interface_config = None
+    if psc_network_attachment:
+        if not vpc_project_id or not vpc_name:
+            print("  Warning: psc_network_attachment provided but vpc_project_id or vpc_name is missing. Skipping PSC config.")
+        else:
+            psc_interface_config = {
+                "network_attachment": psc_network_attachment,
+                "dns_peering_configs": [
+                    {
+                        "domain": "run.app.",  # Use dot for FQDN
+                        "target_project": vpc_project_id,
+                        "target_network": vpc_name,
+                    },
+                ],
+            }
+            print(f"  Configuring Agent with PSC interface attached to {psc_network_attachment}")
+
     print(f"🤖 Deploying {agent_obj.name}...")
     resource_name = None
     existing_resource_name = existing_agents_lookup.get(agent_obj.name) if existing_agents_lookup else None
@@ -133,7 +154,8 @@ def create_agent(config, custom_domain, service_urls=None, existing_agents_looku
                 resource_name=existing_resource_name,
                 agent_engine=adk_app,
                 requirements=requirements,
-                env_vars=env_vars
+                env_vars=env_vars,
+                psc_interface_config=psc_interface_config
             )
         else:
             print(f"🤖 Creating new agent {agent_obj.name}...")
@@ -141,7 +163,8 @@ def create_agent(config, custom_domain, service_urls=None, existing_agents_looku
                 adk_app,
                 display_name=agent_obj.name,
                 requirements=requirements,
-                env_vars=env_vars
+                env_vars=env_vars,
+                psc_interface_config=psc_interface_config
             )
         resource_name = remote_agent.resource_name
         print(f"✅ Deployed remote agent {agent_obj.name}: {resource_name}")
@@ -152,7 +175,7 @@ def create_agent(config, custom_domain, service_urls=None, existing_agents_looku
     return resource_name
 
 
-def create(custom_domain, service_urls=None) -> dict:
+def create(custom_domain, service_urls=None, psc_network_attachment=None, vpc_project_id=None, vpc_name=None) -> dict:
     """Deploy all configured ADK agents in parallel. Returns dict of agent_name -> resource_name."""
     agent_configs = [
         {"name": "RootRouter", "dir": "agents/RootRouter"},
@@ -173,7 +196,7 @@ def create(custom_domain, service_urls=None) -> dict:
 
     print(f"🚀 Deploying {len(agent_configs)} agents in parallel...")
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(agent_configs)) as executor:
-        futures = {executor.submit(create_agent, config, custom_domain, service_urls, existing_agents_lookup): config for config in agent_configs}
+        futures = {executor.submit(create_agent, config, custom_domain, service_urls, existing_agents_lookup, psc_network_attachment, vpc_project_id, vpc_name): config for config in agent_configs}
         for future in concurrent.futures.as_completed(futures):
             config = futures[future]
             try:
@@ -235,6 +258,21 @@ def _main(argv: list[str] | None = None) -> None:
         if FLAGS.custom_domain
         else os.getenv("CUSTOM_DOMAIN")
     )
+    psc_network_attachment = (
+        FLAGS.psc_network_attachment
+        if FLAGS.psc_network_attachment
+        else os.getenv("PSC_NETWORK_ATTACHMENT")
+    )
+    vpc_project_id = (
+        FLAGS.vpc_project_id
+        if FLAGS.vpc_project_id
+        else os.getenv("VPC_PROJECT_ID")
+    )
+    vpc_name = (
+        FLAGS.vpc_name
+        if FLAGS.vpc_name
+        else os.getenv("VPC_NAME")
+    )
 
     if not bucket and project_id:
         bucket = f"{project_id}-deploy-artifacts"
@@ -274,7 +312,7 @@ def _main(argv: list[str] | None = None) -> None:
     if FLAGS.list:
         list_agents()
     elif FLAGS.create:
-        create(custom_domain, service_urls)
+        create(custom_domain, service_urls, psc_network_attachment, vpc_project_id, vpc_name)
     elif FLAGS.delete:
         if not FLAGS.resource_id:
             print("resource_id is required for delete")
@@ -282,7 +320,7 @@ def _main(argv: list[str] | None = None) -> None:
         delete(FLAGS.resource_id)
     else:
         print("No command flag provided. Defaulting to --create.")
-        create(custom_domain, service_urls)
+        create(custom_domain, service_urls, psc_network_attachment, vpc_project_id, vpc_name)
 
 def main():
     app.run(_main)

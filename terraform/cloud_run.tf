@@ -7,6 +7,17 @@ resource "google_cloud_run_v2_service" "flight_specialist" {
   template {
     service_account = google_service_account.flight_specialist.email
 
+    dynamic "vpc_access" {
+      for_each = var.vpc_subnetwork != "" ? [1] : []
+      content {
+        network_interfaces {
+          network    = var.vpc_name
+          subnetwork = var.vpc_subnetwork
+        }
+        egress = "ALL_TRAFFIC"
+      }
+    }
+
     containers {
       image = var.flight_specialist_image
 
@@ -39,6 +50,17 @@ resource "google_cloud_run_v2_service" "weather_specialist" {
   template {
     service_account = google_service_account.weather_specialist.email
 
+    dynamic "vpc_access" {
+      for_each = var.vpc_subnetwork != "" ? [1] : []
+      content {
+        network_interfaces {
+          network    = var.vpc_name
+          subnetwork = var.vpc_subnetwork
+        }
+        egress = "ALL_TRAFFIC"
+      }
+    }
+
     containers {
       image = var.weather_specialist_image
 
@@ -70,6 +92,17 @@ resource "google_cloud_run_v2_service" "profile_mcp" {
 
   template {
     service_account = google_service_account.profile_mcp.email
+
+    dynamic "vpc_access" {
+      for_each = var.vpc_subnetwork != "" ? [1] : []
+      content {
+        network_interfaces {
+          network    = var.vpc_name
+          subnetwork = var.vpc_subnetwork
+        }
+        egress = "ALL_TRAFFIC"
+      }
+    }
 
     containers {
       image = var.profile_mcp_image

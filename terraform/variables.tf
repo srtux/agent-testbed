@@ -69,3 +69,15 @@ variable "traffic_generator_source_zip" {
   type        = string
   description = "The object name of the uploaded zip file in the deploy-artifacts bucket"
 }
+
+variable "vpc_subnetwork" {
+  type        = string
+  description = "The subnetwork to use for Cloud Run Direct VPC egress (e.g., projects/PROJ/regions/REG/subnetworks/SUBNET). Leave empty if not using Direct VPC Egress."
+  default     = ""
+}
+
+variable "vpc_name" {
+  type        = string
+  description = "The VPC network name to use for Cloud Run Direct VPC egress. Required if vpc_subnetwork is set."
+  default     = ""
+}

@@ -128,7 +128,7 @@ def package_traffic_generator(traffic_gen_dir, zip_path_base, project_id, region
     return gcs_path
 
 
-def ensure_terraform_imports(terraform_dir, project_id, tf_vars, log_file=None):
+def ensure_terraform_imports(terraform_dir, project_id, region, tf_vars, log_file=None):
     """Checks for already existing resources and imports them into state."""
     msg = "🔍 Checking for existing resources to import into Terraform state..."
     if log_file: log_file.write(f"{msg}\n")
@@ -141,7 +141,7 @@ def ensure_terraform_imports(terraform_dir, project_id, tf_vars, log_file=None):
     except Exception:
         state_list = []
 
-    # Known fixed-name resources that often cause 409 errors
+    # 1. Service Accounts
     sas = {
         "google_service_account.flight_specialist": "flight-specialist",
         "google_service_account.weather_specialist": "weather-specialist",
@@ -162,7 +162,23 @@ def ensure_terraform_imports(terraform_dir, project_id, tf_vars, log_file=None):
             )
             if check.returncode == 0:
                 print(f"  📥 Importing {tf_name} ({sa_email})...")
-                # We don't want to fail if import fails (e.g. if it's already in state but we missed it)
+                subprocess.run(["terraform", "import"] + tf_vars + [tf_name, full_id], cwd=terraform_dir, capture_output=True)
+
+    # 2. Generic Resources (e.g., Network Attachments)
+    generic_resources = {
+        "google_compute_network_attachment.reasoning_engine": f"{project_id}/{region}/reasoning-engine-attachment"
+    }
+
+    for tf_name, full_id in generic_resources.items():
+        if tf_name not in state_list:
+            res_name = full_id.split("/")[-1]
+            # Check if network attachment exists with describe
+            check = subprocess.run(
+                ["gcloud", "compute", "network-attachments", "describe", res_name, "--region", region, "--project", project_id],
+                capture_output=True
+            )
+            if check.returncode == 0:
+                print(f"  📥 Importing {tf_name} ({res_name})...")
                 subprocess.run(["terraform", "import"] + tf_vars + [tf_name, full_id], cwd=terraform_dir, capture_output=True)
 
 
@@ -327,8 +343,8 @@ def main():
         for key, value in image_urls.items():
             tf_vars.extend(["-var", f"{key}={value}"])
 
-        # Automatically handle 'already exists' for SAs
-        ensure_terraform_imports(terraform_dir, project_id, tf_vars)
+        # Automatically handle 'already exists' for SAs and Network Attachments
+        ensure_terraform_imports(terraform_dir, project_id, region, tf_vars)
 
         print("🚀 Applying Terraform (with parallelism=20)...")
         run_command(["terraform", "apply", "-auto-approve", "-parallelism=20"] + tf_vars, cwd=terraform_dir)

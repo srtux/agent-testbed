@@ -45,11 +45,17 @@ async def test_full_agent_orchestration():
         
         final_response = ""
         for event in response:
-            if hasattr(event, "content") and event.content:
-                for part in event.content.parts:
-                    if part.text:
-                        print(part.text, end="", flush=True)
-                        final_response += part.text
+            # Handle both dictionary (AgentEngine) and object (local runner) formats
+            is_dict = isinstance(event, dict)
+            content = event.get("content") if is_dict else getattr(event, "content", None)
+            
+            if content:
+                parts = content.get("parts", []) if is_dict else getattr(content, "parts", [])
+                for part in parts:
+                    part_text = part.get("text") if is_dict else getattr(part, "text", None)
+                    if part_text:
+                        print(part_text, end="", flush=True)
+                        final_response += part_text
                         
         assert final_response, "No response from Reasoning Engine."
         data = {"status": "complete", "orchestration_summary": final_response}

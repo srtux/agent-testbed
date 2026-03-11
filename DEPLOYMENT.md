@@ -288,6 +288,77 @@ For debugging quickly without waiting on static proxy binding Certificate provis
 *   **Cross-Cluster calls:** Cloud Run components or Agent Engine run loops evaluate against full absolute endpoints (extracted through Terraform state bridge JSON caches locally).
 
 
+### 4. 🔒 Pure Internal VPC Full-Mesh (No Load Balancers)
+
+For environments with strict organizational policies blocking external endpoints or IPs, the following setup allows symmetric routing entirely inside your VPC:
+
+*   **To/From Agent Engine (Reasoning Engine):** 
+    -   **Egress Path:** Uses **Private Service Connect interfaces (PSC-I)** (passed during `create` via `psc_interface_config` parameters updated in `deploy_agent_engine.py`). Resolves standard `*.run.app` internally over your Internal PSC Google API Endpoint router natively.
+    -   **Ingress Path:** Called using standard Google API authentication over **Private Google Access** points inside your VPC subnet. Traversal is purely inside the Google backbone securely.
+
+*   **From Cloud Run Egress:**
+    Configured with optional **Direct VPC Egress** in `cloud_run.tf` (maps `ALL_TRAFFIC` egress to your subnet if `var.vpc_subnetwork` is specified).
+    -   **CR ➡️ GKE:** Escapes internet routes and address private IPs of GKE Internal Load Balancers natively.
+
+*   **From GKE / To GKE:**
+    -   By default, traffic endpoints address Internal Load Balancer annotations (`cloud.google.com/load-balancer-type = "Internal"` configured in `gke.tf` for Direct Mode) which ensures GKE resources never lease public IPs.
+
+#### 🗺️ Connectivity Path Diagram
+```mermaid
+graph TD
+    subgraph Google[Google Managed Tenant]
+        AE[Reasoning Engine]
+    end
+
+    subgraph VPC[Your VPC Network]
+        direction BT
+        
+        PSC[PSC-I Interface]
+        DNS[Internal DNS / Private Google Access]
+        
+        subgraph Services[Compute Workloads]
+            CR[Cloud Run]
+            GKE[GKE Cluster]
+        end
+        
+        %% Traversals
+        AE -- "1. Egress into VPC (PSC-I)" --> PSC
+        PSC -- "Direct IP Router" --> CR
+        PSC -- "Direct IP Router" --> GKE
+        
+        CR -- "2. Direct VPC Egress" --> GKE
+        GKE -- "3. Resolve *.run.app" --> DNS
+    end
+
+    classDef vertex fill:#d4edda,stroke:#28a745,stroke-width:1px;
+    classDef cloudrun fill:#d1ecf1,stroke:#17a2b8,stroke-width:1px;
+    classDef gke fill:#fff3cd,stroke:#ffc107,stroke-width:1px;
+    
+    class AE vertex;
+    class CR cloudrun;
+    class GKE gke;
+```
+
+#### 📊 Matrix of Supported Communication Paths
+
+| Source | Destination | Component | Protocol | VPC Egress Path | VPC Ingress Path |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **AE** (Vertex) | **Cloud Run** | `FlightSpecialist` | A2A (HTTP) | **PSC-I** ➡️ VPC | VPC ➡️ CR Internal Endpoint |
+| **AE** (Vertex) | **Cloud Run** | `Profile_MCP` | MCP (SSE) | **PSC-I** ➡️ VPC | VPC ➡️ CR Internal Endpoint |
+| **AE** (Vertex) | **GKE** | `Inventory_MCP` | MCP (SSE) | **PSC-I** ➡️ VPC | VPC ➡️ GKE Internal LoadBalancer |
+| **CR** | **GKE** | `HotelSpecialist` | A2A (HTTP) | **Direct VPC Egress** | VPC ➡️ GKE Internal LoadBalancer |
+| **CR** | **GKE** | `Inventory_MCP` | MCP (SSE) | **Direct VPC Egress** | VPC ➡️ GKE Internal LoadBalancer |
+| **CR** | **Cloud Run**| `WeatherSpecialist`| A2A (HTTP) | Native Backbone | Native Backbone |
+| **CR** | **Agent Engine**| `BookingOrchestrator`| A2A (HTTP)| **Direct VPC Egress** | PSC / Private Google Access |
+| **GKE** | **GKE** | `CarRentalSpecialist`| A2A (HTTP) | **Local ClusterIP DNS** | **Local ClusterIP DNS** |
+| **GKE** | **GKE** | `Inventory_MCP` | MCP (SSE) | **Local ClusterIP DNS** | **Local ClusterIP DNS** |
+| **GKE** | **Cloud Run** | `Profile_MCP` | MCP (SSE) | VPC Edge Router | VPC ➡️ CR Internal Endpoint |
+
+#### 📚 Official Documentation References
+-   [Use Private Service Connect interface for Vertex AI Training](https://cloud.google.com/vertex-ai/docs/training/psc-i-egress) (Platform Primitive Reference for VPC Egress Setup).
+
+---
+
 ## Troubleshooting
 
 **SSL cert stuck in PROVISIONING:**
