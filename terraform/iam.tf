@@ -61,6 +61,45 @@ resource "google_cloud_run_v2_service_iam_member" "gke_gsa_invoke_profile_mcp" {
   member   = "serviceAccount:${google_service_account.inventory_mcp_gsa.email}"
 }
 
+# --- Agent Engine -> Cloud Run invocation bindings ---
+# Vertex AI Agent Engine uses the default compute service account
+# (PROJECT_NUMBER-compute@developer.gserviceaccount.com) to call downstream services.
+
+data "google_project" "current" {
+  project_id = var.project_id
+}
+
+locals {
+  agent_engine_sa = "${data.google_project.current.number}-compute@developer.gserviceaccount.com"
+}
+
+# Agent Engine -> FlightSpecialist (Cloud Run)
+resource "google_cloud_run_v2_service_iam_member" "agent_engine_invoke_flight" {
+  project  = var.project_id
+  location = var.region
+  name     = google_cloud_run_v2_service.flight_specialist.name
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${local.agent_engine_sa}"
+}
+
+# Agent Engine -> WeatherSpecialist (Cloud Run)
+resource "google_cloud_run_v2_service_iam_member" "agent_engine_invoke_weather" {
+  project  = var.project_id
+  location = var.region
+  name     = google_cloud_run_v2_service.weather_specialist.name
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${local.agent_engine_sa}"
+}
+
+# Agent Engine -> Profile_MCP (Cloud Run)
+resource "google_cloud_run_v2_service_iam_member" "agent_engine_invoke_profile_mcp" {
+  project  = var.project_id
+  location = var.region
+  name     = google_cloud_run_v2_service.profile_mcp.name
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${local.agent_engine_sa}"
+}
+
 # --- Test Runner Permissions ---
 
 resource "google_project_iam_member" "test_runner_run_invoker" {
@@ -79,6 +118,27 @@ resource "google_project_iam_member" "test_runner_ai_user" {
   project = var.project_id
   role    = "roles/aiplatform.user"
   member  = "serviceAccount:${google_service_account.test_runner.email}"
+}
+
+# --- Cloud Run Service Account Trace Permissions ---
+# Cloud Run SAs need cloudtrace.agent to export OTLP spans
+
+resource "google_project_iam_member" "flight_specialist_trace_agent" {
+  project = var.project_id
+  role    = "roles/cloudtrace.agent"
+  member  = "serviceAccount:${google_service_account.flight_specialist.email}"
+}
+
+resource "google_project_iam_member" "weather_specialist_trace_agent" {
+  project = var.project_id
+  role    = "roles/cloudtrace.agent"
+  member  = "serviceAccount:${google_service_account.weather_specialist.email}"
+}
+
+resource "google_project_iam_member" "profile_mcp_trace_agent" {
+  project = var.project_id
+  role    = "roles/cloudtrace.agent"
+  member  = "serviceAccount:${google_service_account.profile_mcp.email}"
 }
 
 # --- GKE Workload Identity Configuration ---

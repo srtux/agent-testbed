@@ -7,6 +7,7 @@ import concurrent.futures
 from pathlib import Path
 from datetime import datetime
 import argparse
+from dotenv import dotenv_values
 
 
 def run_command(command, cwd=None, env=None, check=True, log_file=None, capture_output=False):
@@ -92,18 +93,20 @@ def build_docker_image(name, path, image_url, root_dir, use_docker, log_path):
                     "."
                 ], cwd=root_dir, log_file=f)
             except Exception:
-                # Fallback if --dockerfile isn't supported or fails
-                f.write(f"Retrying with direct Dockerfile copy to root...\n")
-                actual_temp = root_dir / "Dockerfile"
-                shutil.copy2(dockerfile_path, actual_temp)
+                # Fallback if --dockerfile isn't supported: use a per-service
+                # unique name to avoid race conditions with concurrent builds
+                f.write(f"Retrying with renamed Dockerfile at root...\n")
+                fallback_dockerfile = root_dir / f"Dockerfile.fallback.{name}"
+                shutil.copy2(dockerfile_path, fallback_dockerfile)
                 try:
                     run_command([
                         "gcloud", "builds", "submit",
                         "--tag", image_url,
+                        "--dockerfile", str(fallback_dockerfile),
                         "."
                     ], cwd=root_dir, log_file=f)
                 finally:
-                    if actual_temp.exists(): os.remove(actual_temp)
+                    if fallback_dockerfile.exists(): os.remove(fallback_dockerfile)
             finally:
                 if temp_dockerfile.exists():
                     os.remove(temp_dockerfile)
@@ -228,15 +231,12 @@ def main():
     logs_dir = root_dir / "logs" / "deploy"
     logs_dir.mkdir(parents=True, exist_ok=True)
 
-    # Load environment variables from .env
+    # Load environment variables from .env (using dotenv for proper quote/export handling)
     env = os.environ.copy()
     env_file = root_dir / ".env"
     if env_file.exists():
-        with open(env_file, "r") as f:
-            for line in f:
-                if "=" in line and not line.strip().startswith("#"):
-                    key, value = line.strip().split("=", 1)
-                    env[key] = value
+        dotenv_vars = dotenv_values(env_file)
+        env.update({k: v for k, v in dotenv_vars.items() if v is not None})
 
     project_id = env.get("PROJECT_ID", env.get("GOOGLE_CLOUD_PROJECT"))
     region = env.get("REGION", env.get("GOOGLE_CLOUD_LOCATION", "us-central1"))
@@ -442,6 +442,39 @@ def main():
         else:
             print("\n  ⚠️  Warning: No Agent Engine URLs captured. Traffic generator and WeatherSpecialist")
             print("  will not have Agent Engine URLs configured. Re-run with --root_router_url manually.")
+
+    # =========================================================================
+    # Phase 5: Post-deploy health checks
+    # =========================================================================
+    print("\n[Phase 5] 🏥 Running post-deploy health checks...")
+
+    # Read service URLs from the JSON bridge file (written by Phase 2)
+    urls_path = root_dir / "terraform_service_urls.json"
+    if urls_path.exists():
+        with open(urls_path) as f:
+            health_urls = json.load(f)
+
+        import urllib.request
+        import urllib.error
+        all_healthy = True
+        for svc_name, svc_url in health_urls.items():
+            health_url = svc_url.rstrip("/") + "/health"
+            try:
+                req = urllib.request.Request(health_url, method="GET")
+                with urllib.request.urlopen(req, timeout=15) as resp:
+                    if resp.status == 200:
+                        print(f"  ✅ {svc_name}: healthy")
+                    else:
+                        print(f"  ⚠️  {svc_name}: returned {resp.status}")
+                        all_healthy = False
+            except Exception as e:
+                print(f"  ❌ {svc_name}: {e}")
+                all_healthy = False
+
+        if not all_healthy:
+            print("\n⚠️  Some services are not healthy. Check logs above.")
+    else:
+        print("  ⏭️  No terraform_service_urls.json found, skipping health checks.")
 
     print("\n✅ Deployment Complete!")
 

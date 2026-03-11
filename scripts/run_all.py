@@ -36,10 +36,22 @@ def main():
                 continue
             
             print(f"Starting {svc['name']} on port {svc['port']}...")
-            
-            # Ensure the port is free before starting to avoid [Errno 48]
-            # Use lsof -t to get PIDs on the target port and kill them
-            subprocess.run(f"lsof -ti:{svc['port']} | xargs kill -9 2>/dev/null", shell=True)
+
+            # Check if the port is already in use and warn before killing
+            check = subprocess.run(
+                f"lsof -ti:{svc['port']}", shell=True,
+                capture_output=True, text=True
+            )
+            if check.stdout.strip():
+                pids = check.stdout.strip().split('\n')
+                print(f"  ⚠️  Port {svc['port']} in use by PID(s): {', '.join(pids)} — terminating...")
+                for pid in pids:
+                    # Use SIGTERM first for graceful shutdown
+                    subprocess.run(["kill", pid.strip()], capture_output=True)
+                time.sleep(0.5)
+                # Force-kill only if still alive
+                for pid in pids:
+                    subprocess.run(["kill", "-9", pid.strip()], capture_output=True)
             
             env = os.environ.copy()
             # Uvicorn reads .env natively if python-dotenv is installed, 

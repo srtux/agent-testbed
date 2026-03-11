@@ -1,5 +1,6 @@
 import os
 import sys
+import time
 
 def is_otel_initialized() -> bool:
     """Checks if OpenTelemetry has already been initialized with a real provider."""
@@ -52,36 +53,51 @@ def setup_telemetry(force_cloud_trace: bool = False):
     except ImportError as e:
         print(f"Warning: Telemetry dependencies not fully installed: {e}", file=sys.stderr)
 
+def _needs_oidc_auth(url):
+    """Determines if a URL requires OIDC token injection for service-to-service auth.
+    Matches Cloud Run native URLs, Cloud Functions, and custom domain URLs configured
+    via CUSTOM_DOMAIN env var."""
+    if ".a.run.app" in url or ".cloudfunctions.net" in url:
+        return True
+    custom_domain = os.environ.get("CUSTOM_DOMAIN", "")
+    if custom_domain and custom_domain in url:
+        return True
+    return False
+
+# OIDC tokens expire after ~1 hour; refresh 5 minutes before expiry
+_TOKEN_TTL_SECONDS = 55 * 60
+
 def _setup_oidc_auth(requests_inst, httpx_inst):
     """
-    Hooks into Requests and HTTPX to inject OIDC tokens automatically 
+    Hooks into Requests and HTTPX to inject OIDC tokens automatically
     for Cloud Run/Functions targets when running in GCP.
     """
     import google.auth
     import google.auth.transport.requests
     from google.oauth2 import id_token
-    
-    # Cache for tokens to avoid overhead
+
+    # Cache: audience -> (token, expiry_timestamp)
     token_cache = {}
 
     def get_oidc_token(audience):
-        if audience in token_cache:
-            return token_cache[audience]
+        cached = token_cache.get(audience)
+        if cached and cached[1] > time.monotonic():
+            return cached[0]
         try:
             auth_req = google.auth.transport.requests.Request()
             token = id_token.fetch_id_token(auth_req, audience)
-            token_cache[audience] = token
+            token_cache[audience] = (token, time.monotonic() + _TOKEN_TTL_SECONDS)
             return token
         except Exception:
             return None
 
     # For Requests
     requests_inst.instrument()
-    
+
     # For HTTPX (ADK uses this)
     def httpx_request_hook(span, request):
         url = str(request.url)
-        if ".a.run.app" in url or ".cloudfunctions.net" in url:
+        if _needs_oidc_auth(url):
             # Determine audience (the root URL)
             parts = url.split('/')
             audience = f"{parts[0]}//{parts[2]}"
