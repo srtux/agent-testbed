@@ -55,49 +55,56 @@ def setup_telemetry(force_cloud_trace: bool = False):
     """
     Initializes OpenTelemetry for ADK Agents and FastAPI services.
     Ensures GenAI semantic conventions are enabled and instruments common libraries.
+
+    Safe to call from Agent Engine agents: when the platform has already
+    initialized a TracerProvider the function skips provider creation but
+    still installs library instrumentation and OIDC auth hooks needed for
+    service-to-service calls (e.g. RootRouter -> FlightSpecialist).
     """
-    if is_otel_initialized():
-        return
-    
+    already_initialized = is_otel_initialized()
+
     # Force the latest GenAI semantic conventions
     os.environ["OTEL_SEMCONV_STABILITY_OPT_IN"] = "gen_ai_latest_experimental"
 
     try:
-        from opentelemetry import trace
-        from opentelemetry.sdk.trace import TracerProvider
-        from opentelemetry.sdk.trace.export import BatchSpanProcessor
-        
-        # When running inside Agent Engine, the platform handles trace export
-        # automatically via GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY.
-        # For Cloud Run / local environments, set up the OTLP exporter manually.
-        enable_manual_trace = os.environ.get("GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY", "false").lower() != "true"
+        # --- TracerProvider setup (skipped when platform already provides one) ---
+        if not already_initialized:
+            from opentelemetry import trace
+            from opentelemetry.sdk.trace import TracerProvider
+            from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
-        if force_cloud_trace or enable_manual_trace:
-            from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
-            from opentelemetry.sdk.resources import Resource
-            project_id = os.environ.get("GOOGLE_CLOUD_PROJECT", "")
-            
-            provider = TracerProvider(
-                resource=Resource(attributes={
-                    "service.name": os.environ.get("OTEL_SERVICE_NAME", "unknown_service"),
-                    "gcp.project_id": project_id
-                })
-            )
-            exporter = _create_authenticated_exporter(OTLPSpanExporter)
-            processor = BatchSpanProcessor(exporter)
-            provider.add_span_processor(processor)
-            trace.set_tracer_provider(provider)
+            # When running inside Agent Engine, the platform handles trace export
+            # automatically via GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY.
+            # For Cloud Run / local environments, set up the OTLP exporter manually.
+            enable_manual_trace = os.environ.get("GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY", "false").lower() != "true"
 
+            if force_cloud_trace or enable_manual_trace:
+                from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+                from opentelemetry.sdk.resources import Resource
+                project_id = os.environ.get("GOOGLE_CLOUD_PROJECT", "")
+
+                provider = TracerProvider(
+                    resource=Resource(attributes={
+                        "service.name": os.environ.get("OTEL_SERVICE_NAME", "unknown_service"),
+                        "gcp.project_id": project_id
+                    })
+                )
+                exporter = _create_authenticated_exporter(OTLPSpanExporter)
+                processor = BatchSpanProcessor(exporter)
+                provider.add_span_processor(processor)
+                trace.set_tracer_provider(provider)
+
+        # --- Library instrumentation & OIDC auth (always needed) ---
         from opentelemetry.instrumentation.google_genai import GoogleGenAiSdkInstrumentor
         from opentelemetry.instrumentation.requests import RequestsInstrumentor
         from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
-        
+
         # Instrument generic libraries
         GoogleGenAiSdkInstrumentor().instrument()
-        
+
         # We wrap the underlying transport to inject OIDC tokens for service-to-service auth
         _setup_oidc_auth(RequestsInstrumentor(), HTTPXClientInstrumentor())
-        
+
     except ImportError as e:
         print(f"Warning: Telemetry dependencies not fully installed: {e}", file=sys.stderr)
 

@@ -4,22 +4,25 @@ This document captures hard-won learnings about OpenTelemetry, ADK, and Google C
 
 ## Critical Rules
 
-### 1. Agent Engine Has Built-in OpenTelemetry — Do NOT Double-Initialize
+### 1. Agent Engine Has Built-in OpenTelemetry — Do NOT Manually Create a TracerProvider
 
-**Agents deployed to Vertex AI Agent Engine (RootRouter, BookingOrchestrator) must NOT call `setup_telemetry()` or manually create a `TracerProvider`.**
+**Agents deployed to Vertex AI Agent Engine (RootRouter, BookingOrchestrator) must NOT manually create a `TracerProvider` or call `trace.set_tracer_provider()`.**
 
 Agent Engine automatically initializes OpenTelemetry when `GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY=true` is set in `env_vars` during deployment (see `scripts/deploy_agent_engine.py`). The platform creates its own `TracerProvider` and configures trace export to Cloud Trace automatically.
 
-If you call `trace.set_tracer_provider()` again, you will **overwrite** the platform's provider, breaking trace export.
+**However, Agent Engine agents SHOULD call `setup_telemetry()`**. The function detects when OTel is already initialized and skips TracerProvider creation, but still installs critical library instrumentation (httpx, requests, GenAI) and OIDC auth hooks needed for service-to-service calls. Without this, outbound HTTP calls to Cloud Run services (e.g. RootRouter → FlightSpecialist) will fail with 403 permission errors because no OIDC token is injected.
 
-The guard in `testbed_utils/telemetry.py` handles this:
+The guards in `testbed_utils/telemetry.py` make this safe:
 ```python
-enable_manual_trace = os.environ.get(
-    "GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY", "false"
-).lower() != "true"
+already_initialized = is_otel_initialized()  # True in Agent Engine
+if not already_initialized:
+    # TracerProvider setup — skipped in Agent Engine
+    ...
+# Library instrumentation & OIDC auth — always runs
+_setup_oidc_auth(RequestsInstrumentor(), HTTPXClientInstrumentor())
 ```
 
-**Only Cloud Run and GKE agents call `setup_telemetry()`.** Agent Engine agents just import their `agent` object and let the platform handle the rest.
+**All agents call `setup_telemetry()`** at module level before other imports.
 
 ### 2. Use `opentelemetry-exporter-otlp-proto-grpc` — NOT `opentelemetry-exporter-gcp-trace`
 
@@ -113,7 +116,7 @@ The `_create_authenticated_exporter()` function reads this env var to decide whe
 
 When adding a new agent to this testbed:
 
-1. **Agent Engine agents**: Do NOT call `setup_telemetry()`. Just define your `agent` object.
+1. **Agent Engine agents**: Call `setup_telemetry()` at module level (before other imports). It safely skips TracerProvider creation but installs OIDC auth and library instrumentation.
 2. **Cloud Run / GKE agents**:
    - Call `setup_telemetry()` at module level (before FastAPI app creation)
    - Call `FastAPIInstrumentor.instrument_app(app)` after creating the FastAPI app
@@ -126,7 +129,7 @@ When adding a new agent to this testbed:
 
 | Mistake | Why It's Wrong | Correct Approach |
 |---------|---------------|-----------------|
-| Calling `setup_telemetry()` in Agent Engine agents | Overwrites platform's TracerProvider | Let Agent Engine handle it |
+| Calling `trace.set_tracer_provider()` in Agent Engine agents | Overwrites platform's TracerProvider | Call `setup_telemetry()` which safely skips provider creation |
 | Using `opentelemetry-exporter-gcp-trace` | Deprecated, lossy format conversion | Use `opentelemetry-exporter-otlp-proto-grpc` |
 | `OTLPSpanExporter()` without credentials | Fails silently against telemetry.googleapis.com | Use `_create_authenticated_exporter()` |
 | Setting `session_id="default"` | All sessions collide, traces intermix | Use `str(uuid.uuid4())` |

@@ -125,6 +125,10 @@ def create_agent(config, custom_domain, service_urls=None, existing_agents_looku
         "PYTHONPATH": "/code:/code/site-packages:/code/.venv/lib/python3.12/site-packages:.",
         **urls,
     }
+    # Pass CUSTOM_DOMAIN so the OIDC auth hook (_needs_oidc_auth) recognises
+    # custom-domain URLs and injects tokens for service-to-service calls.
+    if custom_domain:
+        env_vars["CUSTOM_DOMAIN"] = custom_domain
 
     # Config for Private Service Connect Interface
     psc_interface_config = None
