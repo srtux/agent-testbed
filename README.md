@@ -6,14 +6,16 @@ This repository contains a testbed for a distributed AI architecture using the G
 
 The application is structured into orchestration agents, specialist sub-agents, and resource servers:
 
-- **RootRouter**: The primary orchestration agent deployed on Vertex AI Agent Engine. It handles user requests, extracts travel intent (local tool), classifies request type via an in-process IntentClassifier sub-agent (AgentTool), and delegates to sub-agents.
-- **FlightSpecialist**: A specialized agent deployed on Cloud Run, built with FastAPI, that coordinates flight queries. Includes local tools for date validation and fare calculation, and an in-process SeatSelector sub-agent (transfer model via `sub_agents=[]`).
-- **Profile_MCP**: An MCP Server deployed on Cloud Run exposing user travel preferences via HTTP/SSE.
-- **Inventory_MCP**: An MCP Server deployed on GKE providing mock hotel and car rental data.
-- **BookingOrchestrator**: A transactional agent deployed on Agent Engine that calculates trip costs and formats itineraries (local tools), validates via an in-process ItineraryValidator sub-agent (AgentTool), and commits bookings via MCP.
-- **HotelSpecialist**: A specialist agent deployed on GKE that calculates nightly rates (local tool), queries hotel inventory via MCP, and coordinates car rentals via A2A HTTP.
-- **CarRentalSpecialist**: A specialist agent deployed on GKE that calculates rental pricing (local tool) and checks user loyalty status via MCP.
-- **WeatherSpecialist**: A specialist agent deployed on Cloud Run that checks weather conditions via MCP, suggests packing items (local tool), and delegates to the BookingOrchestrator.
+- **RootRouter**: The primary orchestration agent deployed on Vertex AI Agent Engine. Enforces an **Authentication Gate** (requiring `member_id`), fetches user profiles via **Profile_MCP**, and delegates to **Inspiration** and **Planning** sub-agents.
+- **InspirationSubAgent**: In-process sub-agent managing destination recommendations with nested `PlaceAgent` and `PoiAgent` sub-agents.
+- **PlanningSubAgent**: In-process sub-agent managing A2A Specialist triggers for Flight, Hotel, and Car. Queries destination profiling using a fully-managed **Remote BigQuery MCP** (`https://bigquery.googleapis.com/mcp`).
+- **BookingOrchestrator**: Transactional agent that validates itineraries (`ItineraryValidator`), processes mock charges (`PaymentAgent`), and commits bookings via `Inventory_MCP`.
+- **FlightSpecialist**: Specialist deployed on Cloud Run coordinating flight lookups and seat selections.
+- **HotelSpecialist**: Specialist deployed on GKE calculating rates and querying hotel inventory via local MCP.
+- **CarRentalSpecialist**: Specialist deployed on GKE adjusting car rates based on loyalty.
+- **WeatherSpecialist**: Specialist on Cloud Run providing forecast data.
+- **Profile_MCP**: FastMCP SSE server on Cloud Run exposing user travel tiers.
+- **Inventory_MCP**: FastMCP SSE server on GKE providing hotel & car levels.
 
 ### Shared Utilities
 
@@ -42,23 +44,24 @@ graph TD
     classDef subagent fill:#2e7d32,stroke:#a5d6a7,stroke-width:1px,color:#ffffff,stroke-dasharray: 3 3;
     classDef mcp fill:#0f4c81,stroke:#64b5f6,stroke-width:2px,color:#ffffff;
     classDef user fill:#b35900,stroke:#ffb74d,stroke-width:2px,color:#ffffff;
-    classDef tool fill:#4a148c,stroke:#ce93d8,stroke-width:1px,color:#ffffff,font-size:10px;
 
-    %% Environments
     subgraph AgentEngineEnv["Agent Engine"]
         RootRouter[RootRouter]:::agent
-        IntentClassifier([IntentClassifier]):::subagent
-        RootRouter -.->|AgentTool| IntentClassifier
+        Inspiration([InspirationSubAgent]):::subagent
+        Planning([PlanningSubAgent]):::subagent
         BookingOrchestrator[BookingOrchestrator]:::agent
         ItineraryValidator([ItineraryValidator]):::subagent
-        BookingOrchestrator -.->|AgentTool| ItineraryValidator
+        PaymentAgent([PaymentAgent]):::subagent
+        
+        RootRouter -.->|subagent| Inspiration
+        RootRouter -.->|subagent| Planning
+        BookingOrchestrator -.->|subagent| ItineraryValidator
+        BookingOrchestrator -.->|subagent| PaymentAgent
     end
     style AgentEngineEnv fill:transparent,stroke:#ce93d8,stroke-width:2px,stroke-dasharray: 5 5
 
     subgraph CloudRunEnv["Cloud Run"]
         FlightSpecialist[FlightSpecialist]:::agent
-        SeatSelector([SeatSelector]):::subagent
-        FlightSpecialist -.->|sub_agent| SeatSelector
         WeatherSpecialist[WeatherSpecialist]:::agent
         ProfileMCP[Profile_MCP Server]:::mcp
     end
@@ -71,11 +74,16 @@ graph TD
     end
     style GKEEnv fill:transparent,stroke:#a5d6a7,stroke-width:2px,stroke-dasharray: 5 5
 
+    subgraph GoogleMCP["Google Cloud"]
+        RemoteBQ[(Remote BigQuery MCP)]:::mcp
+    end
+
     %% Dependencies / Call Hierarchy
     User[/User Request/]:::user --> RootRouter
 
     RootRouter --> ProfileMCP
-    RootRouter --> FlightSpecialist
+    Planning --> RemoteBQ
+    Planning --> FlightSpecialist
 
     FlightSpecialist --> Hotel
     FlightSpecialist --> WeatherSpecialist
@@ -94,42 +102,42 @@ graph TD
 ### Data Flow Diagram
 
 ```mermaid
-flowchart LR
+flowchart TD
     %% Define Classes
     classDef agent fill:#1b5e20,stroke:#81c784,stroke-width:2px,color:#ffffff;
     classDef mcp fill:#0f4c81,stroke:#64b5f6,stroke-width:2px,color:#ffffff;
     classDef user fill:#b35900,stroke:#ffb74d,stroke-width:2px,color:#ffffff;
+    classDef subagent fill:#2e7d32,stroke:#a5d6a7,stroke-width:1px,color:#ffffff,stroke-dasharray: 3 3;
 
     User((User)):::user
-    
-    %% Core Routing
-    User -- "Travel Request" --> Root[RootRouter]:::agent
-    Root -- "Loyalty & Preferences" --> Profile[(Profile_MCP)]:::mcp
-    Root -- "Flight Req" --> Flight[FlightSpecialist]:::agent
-    
-    %% Flight Sub-Routing
-    Flight -- "Hotel Req" --> Hotel[HotelSpecialist]:::agent
-    Flight -- "Weather Info Req" --> Weather[WeatherSpecialist]:::agent
-    
-    %% Data Access
-    Hotel -- "Availability Query" --> Inv[(Inventory_MCP)]:::mcp
-    Hotel -- "Car Rental Req" --> Car[CarRentalSpecialist]:::agent
-    
-    Car -- "User Tier Check" --> Profile
-    
-    Weather -- "Forecast Query" --> Inv
-    Weather -- "Booking Req" --> Booking[BookingOrchestrator]:::agent
-    
-    %% Commit phase
-    Booking -- "Commit Itinerary" --> Inv
-    
-    %% Return Flow (Implicit in architecture but explicitly drawn for logic)
-    Booking -. "Final Itinerary" .-> Weather
-    Weather -. "Weather + Itin" .-> Flight
-    Car -. "Car Summary" .-> Hotel
-    Hotel -. "Hotel + Car Sum" .-> Flight
-    Flight -. "Full Sched" .-> Root
-    Root -. "Complete Plan" .-> User
+    Root[RootRouter]:::agent
+    Insp[InspirationSubAgent]:::subagent
+    Plan[PlanningSubAgent]:::subagent
+    Profile[(Profile_MCP)]:::mcp
+    Remote[(Remote BigQuery MCP)]:::mcp
+    Flight[FlightSpecialist]:::agent
+    Orchestrator[BookingOrchestrator]:::agent
+    Payment([PaymentAgent]):::subagent
+    Inv[(Inventory_MCP)]:::mcp
+
+    %% 2-Step Auth Flow
+    User -- "1. Initial Intent" --> Root
+    Root -. "2. Request Auth" .-> User
+    User -- "3. Provide Member ID" --> Root
+
+    %% Inner Routing
+    Root -- "4. Fetch Profile" --> Profile
+    Root -- "5a. Brainstorm" --> Insp
+    Root -- "5b. Structure" --> Plan
+
+    %% Planning & Specialist triggers
+    Plan -- "6. Destination Insights" --> Remote
+    Plan -- "7. Coordinates" --> Flight
+
+    %% Downstream
+    Flight -- "8. Invoice" --> Orchestrator
+    Orchestrator -- "9. Charge" --> Payment
+    Orchestrator -- "10. Commit" --> Inv
 ```
 
 ## Tool & Interaction Taxonomy
@@ -195,11 +203,26 @@ A Cloud Function (`traffic_generator/`) that acts as the root span originator. I
 agent-testbed/
 ├── agents/
 │   ├── RootRouter/           # Primary orchestration agent (Agent Engine, port 8080)
+│   │   ├── main.py           # Loader wrapper (Uvicorn / FastAPI Adapter)
+│   │   └── root_router/      # Actual ADK Agent package
+│   │       ├── agent.py
+│   │       ├── prompt.py
+│   │       └── sub_agents/
 │   ├── BookingOrchestrator/  # Transaction finalizer (Agent Engine, port 8081)
+│   │   ├── main.py           # Loader wrapper
+│   │   └── booking_orchestrator/
 │   ├── FlightSpecialist/     # Flight coordination (Cloud Run, port 8082)
+│   │   ├── main.py           # Loader wrapper
+│   │   └── flight_specialist/
 │   ├── WeatherSpecialist/    # Weather + booking delegation (Cloud Run, port 8083)
+│   │   ├── main.py           # Loader wrapper
+│   │   └── weather_specialist/
 │   ├── HotelSpecialist/      # Hotel inventory + car rental (GKE, port 8084)
+│   │   ├── main.py           # Loader wrapper
+│   │   └── hotel_specialist/
 │   └── CarRentalSpecialist/  # Car rental + loyalty check (GKE, port 8085)
+│       ├── main.py           # Loader wrapper
+│       └── car_rental_specialist/
 ├── mcp_servers/
 │   ├── Profile_MCP/          # User preferences MCP server (Cloud Run, port 8090)
 │   └── Inventory_MCP/        # Hotel/car/weather data MCP server (GKE, port 8091)
@@ -318,83 +341,49 @@ The `uv run deploy` command uses a sophisticated orchestration system to minimiz
 The testbed exercises the following OpenTelemetry W3C trace propagation paths across Google Cloud:
 
 ```mermaid
-%%{init: { 'themeVariables': { 'actorBkg': '#1b5e20', 'actorBorder': '#81c784', 'actorTextColor': '#ffffff' } } }%%
 sequenceDiagram
-    participant TrafficGen as Traffic Generator<br>(Cloud Function)
-    
-    box #CE93D81A Agent Engine
-    participant RootRouter as RootRouter<br>(Agent Engine)
-    participant BookingOrchestrator as BookingOrch<br>(Agent Engine)
-    end
-    
-    box #9FA8DA1A Cloud Run
-    participant FlightSpecialist as Flight<br>(Cloud Run)
-    participant ProfileMCP as Profile_MCP<br>(Cloud Run)
-    participant Weather as Weather<br>(Cloud Run)
-    end
-    
-    box #A5D6A71A Google Kubernetes Engine (GKE)
-    participant Hotel as Hotel<br>(GKE)
-    participant Car as Car<br>(GKE)
-    participant InvMCP as Inventory_MCP<br>(GKE)
-    end
+    participant TrafficGen as Traffic Generator
+    participant RootRouter as RootRouter (AE)
+    participant ProfileMCP as Profile_MCP (CR)
+    participant RemoteBQ as Remote BQ MCP (GCP)
+    participant Specialist as Specialist (CR/GKE)
+    participant Booking as BookingOrchestrator (AE)
+    participant InvMCP as Inventory_MCP (GKE)
 
+    %% Turn 1
+    TrafficGen->>RootRouter: POST /chat (Intent: "Vacation")
+    RootRouter-->>TrafficGen: 200: Auth Gate Prompt + session_id
 
-    TrafficGen->>RootRouter: POST /chat (root span)
+    %% Turn 2
+    TrafficGen->>RootRouter: POST /chat (Auth: "M-12345", session_id)
     activate RootRouter
 
-    Note right of RootRouter: extract_travel_intent (local tool)
-    Note right of RootRouter: IntentClassifier (AgentTool, in-process)
+    RootRouter->>ProfileMCP: call_tool (fetch_profile)
+    ProfileMCP-->>RootRouter: returns loyalty (Gold)
 
-    RootRouter->>ProfileMCP: POST /mcp/call_tool
-    ProfileMCP-->>RootRouter: returns preferences
+    Note right of RootRouter: Inspiration sub-agent (Brainstorm)
+    Note right of RootRouter: Planning sub-agent triggers
 
-    RootRouter->>FlightSpecialist: POST /chat
-    activate FlightSpecialist
+    RootRouter->>RemoteBQ: execute_sql (Destination Insights)
+    RemoteBQ-->>RootRouter: returns trends, weather
 
-    Note right of FlightSpecialist: validate_dates (local tool)
-    Note right of FlightSpecialist: check_flight_availability (local tool)
-    Note right of FlightSpecialist: SeatSelector (sub_agent, in-process)
+    RootRouter->>Specialist: A2A Request (Flight/Hotel/Car)
+    activate Specialist
+    Specialist->>InvMCP: get_inventory
+    InvMCP-->>Specialist: rates...
+    Specialist-->>RootRouter: Specialist Aggregation
+    deactivate Specialist
 
-    FlightSpecialist->>Hotel: POST /chat
-    activate Hotel
-    Hotel->>InvMCP: POST /mcp/call_tool
-    InvMCP-->>Hotel: returns inventory
-    Note right of Hotel: calculate_nightly_rate (local tool)
+    RootRouter->>Booking: A2A Request (Invoice)
+    activate Booking
+    Note right of Booking: ItineraryValidator (In-process)
+    Note right of Booking: PaymentAgent (Charge Auth)
+    Booking->>InvMCP: commit_booking
+    InvMCP-->>Booking: confirmation CNF-12345
+    Booking-->>RootRouter: Booked Itinerary
+    deactivate Booking
 
-    Hotel->>Car: POST /chat
-    activate Car
-    Car->>ProfileMCP: POST /mcp/call_tool
-    ProfileMCP-->>Car: returns loyalty status
-    Note right of Car: calculate_rental_price (local tool)
-    Car-->>Hotel: returns Car summary
-    deactivate Car
-    Hotel-->>FlightSpecialist: returns Hotel+Car summary
-    deactivate Hotel
-
-    FlightSpecialist->>Weather: POST /chat
-    activate Weather
-    Weather->>InvMCP: POST /mcp/call_tool
-    InvMCP-->>Weather: returns conditions
-    Note right of Weather: suggest_packing (local tool)
-
-    Weather->>BookingOrchestrator: POST /chat
-    activate BookingOrchestrator
-    Note right of BookingOrchestrator: calculate_trip_cost (local tool)
-    Note right of BookingOrchestrator: format_itinerary (local tool)
-    Note right of BookingOrchestrator: ItineraryValidator (AgentTool, in-process)
-    BookingOrchestrator->>InvMCP: POST /mcp/call_tool (commit)
-    InvMCP-->>BookingOrchestrator: returns confirmation
-    BookingOrchestrator-->>Weather: returns Finalized Itinerary
-    deactivate BookingOrchestrator
-
-    Weather-->>FlightSpecialist: returns Weather + Itinerary
-    deactivate Weather
-
-    FlightSpecialist-->>RootRouter: returns full specialized summary
-    deactivate FlightSpecialist
-
-    RootRouter-->>TrafficGen: returns complete orchestration
+    RootRouter-->>TrafficGen: Full Itinerary Overview
     deactivate RootRouter
 ```
 
@@ -421,13 +410,14 @@ Shared mock data tables (`FARE_TABLE`, `CAR_RATE_TABLE`, `LOYALTY_DISCOUNTS`) ar
 
 ### 2. Add In-Process Sub-Agents — IMPLEMENTED
 
-Three in-process sub-agents demonstrate both ADK delegation patterns, producing nested `gen_ai.agent` spans without HTTP:
+Four in-process sub-agents demonstrate both ADK delegation patterns, producing nested `gen_ai.agent` spans without HTTP:
 
 | Parent Agent | Sub-Agent | ADK Pattern | Purpose |
 | :--- | :--- | :--- | :--- |
-| FlightSpecialist | `SeatSelector` | `sub_agents=[]` (transfer model) | Recommends seat based on user preferences |
-| RootRouter | `IntentClassifier` | `AgentTool(agent=...)` (tool model) | Classifies request as new_booking/modification/inquiry/cancellation |
-| BookingOrchestrator | `ItineraryValidator` | `AgentTool(agent=...)` (tool model) | Validates itinerary completeness before committing |
+| RootRouter | `InspirationSubAgent` | `AgentTool` | Destination brainstorming and Poi mapping |
+| RootRouter | `PlanningSubAgent` | `AgentTool` | A2A coordination and Remote BQ MCP queries |
+| BookingOrchestrator | `ItineraryValidator` | `AgentTool` | Validates itinerary completeness |
+| BookingOrchestrator | `PaymentAgent` | `AgentTool` | Processes mock payment authorization |
 
 The two patterns produce different span structures:
 - **Transfer model** (`sub_agents=[]`): Parent yields control; sub-agent takes over the conversation and transfers back when done

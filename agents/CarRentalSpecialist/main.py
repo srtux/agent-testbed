@@ -1,5 +1,3 @@
-# main.py MUST come before other imports for OTel patching
-# ruff: noqa: E402
 from testbed_utils.telemetry import setup_telemetry
 from testbed_utils.logging import setup_logging
 from testbed_utils.config import DEFAULT_PRO_MODEL
@@ -7,87 +5,23 @@ from testbed_utils.config import DEFAULT_PRO_MODEL
 setup_telemetry()
 logger = setup_logging()
 
+import sys
 import os
 import json
 import uuid
-
-import httpx
 from fastapi import FastAPI
 from pydantic import BaseModel
 from google.genai import types
-from google.adk.agents import LlmAgent
 from google.adk.runners import InMemoryRunner
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
-from mcp.client.sse import sse_client
-from mcp.client.session import ClientSession
-from opentelemetry.propagate import inject
+# Add local directory to sys.path so 'car_rental_specialist' can be imported absolutely
+current_dir = os.path.dirname(os.path.abspath(__file__))
+if current_dir not in sys.path:
+    sys.path.insert(0, current_dir)
 
+from car_rental_specialist.agent import agent
 
-# --- Local Tool (real compute) ---
-
-async def calculate_rental_price(car_class: str, days: int, loyalty_tier: str) -> dict:
-    """Calculate rental price based on car class, duration, and loyalty tier."""
-    from testbed_utils.config import CAR_RATE_TABLE, LOYALTY_DISCOUNTS
-    daily_rate = CAR_RATE_TABLE.get(car_class.lower(), 70)
-    subtotal = daily_rate * days
-    discount_pct = LOYALTY_DISCOUNTS.get(loyalty_tier, 0)
-    total = round(subtotal * (1 - discount_pct), 2)
-    return {
-        "car_class": car_class, "daily_rate": daily_rate, "days": days,
-        "subtotal": subtotal, "loyalty_discount_pct": discount_pct * 100,
-        "total": total,
-    }
-
-
-# --- MCP Delegation Tool ---
-
-async def check_loyalty_status(user_id: str) -> dict:
-    """Check user's car rental loyalty status via CR Profile MCP."""
-    logger.info(f"Checking car rental loyalty status for {user_id}")
-
-    profile_mcp_url = os.environ.get("PROFILE_MCP_URL", "http://localhost:8090/sse")
-
-    if profile_mcp_url.endswith("/mcp/call_tool"):
-        profile_mcp_url = profile_mcp_url.replace("/mcp/call_tool", "/sse")
-
-    # GKE -> CR Profile MCP edge over FastMCP Session
-    try:
-        async with sse_client(profile_mcp_url) as (read, write):
-            async with ClientSession(read, write) as session:
-                await session.initialize()
-                meta = {}
-                inject(meta)  # Propagate W3C traceparent into the _meta object
-
-                res = await session.call_tool(
-                    "get_user_preferences",
-                    arguments={"user_id": user_id},
-                    meta=meta
-                )
-                if res.content and len(res.content) > 0:
-                    data = res.content[0].text
-                    if isinstance(data, str):
-                        return json.loads(data)
-                    return data
-    except Exception as e:
-        logger.warning(f"FastMCP call to user profile failed natively: {e}")
-        return {"loyalty_tier": "Silver"}
-
-    return {"loyalty_tier": "Silver"}
-
-# --- Agent ---
-agent = LlmAgent(
-    name="CarRentalSpecialist",
-    model=DEFAULT_PRO_MODEL,
-    static_instruction="""You are the Car Rental Specialist.
-    1. Check the user's loyalty status via check_loyalty_status.
-    2. Calculate the rental price using calculate_rental_price based on the loyalty tier.
-    3. Propose a rental car based on the tier and calculated price.
-    4. Return the summary.""",
-    tools=[calculate_rental_price, check_loyalty_status],
-)
-
-# --- FastAPI App ---
 runner = InMemoryRunner(agent=agent)
 runner.auto_create_session = True
 app = FastAPI()
