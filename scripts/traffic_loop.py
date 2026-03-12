@@ -93,27 +93,61 @@ def send_request(endpoint: str, request_num: int, timeout: float = 120.0) -> dic
     }
 
     try:
-        resp = requests.post(
-            endpoint,
-            json={"user_id": user_id, "prompt": prompt},
-            timeout=timeout,
-        )
-        elapsed = time.monotonic() - start
-        result["status_code"] = resp.status_code
-        result["elapsed_seconds"] = round(elapsed, 2)
+        if endpoint.startswith("projects/"):
+            import vertexai
+            from vertexai import agent_engines
+            
+            project_id = os.environ.get("GOOGLE_CLOUD_PROJECT")
+            location = os.environ.get("GOOGLE_CLOUD_LOCATION", "us-central1")
+            vertexai.init(project=project_id, location=location)
 
-        if resp.status_code == 200:
-            data = resp.json()
-            summary = data.get("orchestration_summary", "")
+            ae = agent_engines.AgentEngine(endpoint)
+            # stream_query is recommended for Reasoning Engines
+            response = ae.stream_query(user_id=user_id, message=prompt)
+            
+            final_response = ""
+            for event in response:
+                is_dict = isinstance(event, dict)
+                content = event.get("content") if is_dict else getattr(event, "content", None)
+                if content:
+                    parts = content.get("parts", []) if is_dict else getattr(content, "parts", [])
+                    for part in parts:
+                        text = part.get("text") if is_dict else getattr(part, "text", None)
+                        if text:
+                            final_response += text
+                        if is_dict and "function_call" in part:
+                            final_response += f"Tool call: {part['function_call']['name']}\n"
+
+            elapsed = time.monotonic() - start
+            result["status_code"] = 200
+            result["elapsed_seconds"] = round(elapsed, 2)
             result["status"] = "success"
-            result["summary_length"] = len(summary)
+            result["summary_length"] = len(final_response)
             logger.info(
-                f"[#{request_num}] OK in {elapsed:.1f}s | user={user_id} | summary={len(summary)} chars"
+                f"[#{request_num}] OK in {elapsed:.1f}s | user={user_id} | summary={len(final_response)} chars"
             )
         else:
-            result["status"] = "http_error"
-            result["error"] = resp.text[:200]
-            logger.warning(f"[#{request_num}] HTTP {resp.status_code} in {elapsed:.1f}s | {resp.text[:100]}")
+            resp = requests.post(
+                endpoint,
+                json={"user_id": user_id, "prompt": prompt},
+                timeout=timeout,
+            )
+            elapsed = time.monotonic() - start
+            result["status_code"] = resp.status_code
+            result["elapsed_seconds"] = round(elapsed, 2)
+
+            if resp.status_code == 200:
+                data = resp.json()
+                summary = data.get("orchestration_summary", "")
+                result["status"] = "success"
+                result["summary_length"] = len(summary)
+                logger.info(
+                    f"[#{request_num}] OK in {elapsed:.1f}s | user={user_id} | summary={len(summary)} chars"
+                )
+            else:
+                result["status"] = "http_error"
+                result["error"] = resp.text[:200]
+                logger.warning(f"[#{request_num}] HTTP {resp.status_code} in {elapsed:.1f}s | {resp.text[:100]}")
 
     except Exception as e:
         elapsed = time.monotonic() - start

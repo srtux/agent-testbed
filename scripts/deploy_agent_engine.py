@@ -155,7 +155,7 @@ def create_agent(config, custom_domain, service_urls=None, existing_agents_looku
                 agent_engine=adk_app,
                 requirements=requirements,
                 env_vars=env_vars,
-                psc_interface_config=psc_interface_config
+                psc_interface_config=psc_interface_config,
             )
         else:
             print(f"🤖 Creating new agent {agent_obj.name}...")
@@ -164,7 +164,7 @@ def create_agent(config, custom_domain, service_urls=None, existing_agents_looku
                 display_name=agent_obj.name,
                 requirements=requirements,
                 env_vars=env_vars,
-                psc_interface_config=psc_interface_config
+                psc_interface_config=psc_interface_config,
             )
         resource_name = remote_agent.resource_name
         print(f"✅ Deployed remote agent {agent_obj.name}: {resource_name}")

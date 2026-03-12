@@ -15,7 +15,22 @@ tracer = trace.get_tracer(__name__)
 
 
 # --- FastMCP Server ---
-mcp = FastMCP("Profile_MCP")
+import os
+from mcp.server.transport_security import TransportSecuritySettings
+
+allowed_hosts = ["127.0.0.1:*", "localhost:*", "[::1]:*"]
+extra_hosts = os.environ.get("ALLOWED_HOSTS")
+if extra_hosts:
+    allowed_hosts.extend([h.strip() + ":*" if ":" not in h else h.strip() for h in extra_hosts.split(",")])
+
+mcp = FastMCP(
+    "Profile_MCP",
+    transport_security=TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=allowed_hosts,
+        allowed_origins=["http://127.0.0.1:*", "http://localhost:*"]
+    )
+)
 
 def _extract_trace_context(ctx: Context):
     """Helper to pull W3C traceparent from MCP _meta injected by clients."""

@@ -4,7 +4,8 @@ resource "kubernetes_deployment" "hotel_specialist" {
   metadata {
     name = "gke-hotel-specialist"
     labels = {
-      app = "gke-hotel-specialist"
+      app     = "gke-hotel-specialist"
+      testbed = "my-agent-testbed"
     }
   }
 
@@ -93,6 +94,9 @@ resource "kubernetes_deployment" "hotel_specialist" {
 resource "kubernetes_service" "hotel_specialist" {
   metadata {
     name = "gke-hotel-specialist-service"
+    labels = {
+      testbed = "my-agent-testbed"
+    }
     annotations = local.use_custom_domain ? {
       "cloud.google.com/neg" = jsonencode({ ingress = true })
     } : {
@@ -117,7 +121,8 @@ resource "kubernetes_deployment" "car_rental_specialist" {
   metadata {
     name = "gke-car-rental"
     labels = {
-      app = "gke-car-rental"
+      app     = "gke-car-rental"
+      testbed = "my-agent-testbed"
     }
   }
 
@@ -202,6 +207,9 @@ resource "kubernetes_deployment" "car_rental_specialist" {
 resource "kubernetes_service" "car_rental_specialist" {
   metadata {
     name = "gke-car-rental-service"
+    labels = {
+      testbed = "my-agent-testbed"
+    }
     annotations = local.use_custom_domain ? {
       "cloud.google.com/neg" = jsonencode({ ingress = true })
     } : {
@@ -226,7 +234,8 @@ resource "kubernetes_deployment" "inventory_mcp" {
   metadata {
     name = "gke-inventory-mcp"
     labels = {
-      app = "gke-inventory-mcp"
+      app     = "gke-inventory-mcp"
+      testbed = "my-agent-testbed"
     }
   }
 
@@ -311,6 +320,9 @@ resource "kubernetes_deployment" "inventory_mcp" {
 resource "kubernetes_service" "inventory_mcp" {
   metadata {
     name = "gke-inventory-mcp-service"
+    labels = {
+      testbed = "my-agent-testbed"
+    }
     annotations = local.use_custom_domain ? {
       "cloud.google.com/neg" = jsonencode({ ingress = true })
     } : {

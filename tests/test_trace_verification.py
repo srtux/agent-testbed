@@ -196,11 +196,42 @@ async def test_remote_trace_generation():
     }
 
     print(f"\nSending trace-generating request to {endpoint}...")
-    async with httpx.AsyncClient(timeout=180.0) as client:
-        response = await client.post(endpoint, json=payload)
-        assert response.status_code == 200, f"Request failed: {response.status_code} {response.text[:200]}"
-        data = response.json()
-        assert data.get("status") == "complete", f"Orchestration did not complete: {data}"
+    if endpoint.startswith("projects/"):
+        print(f"Querying Vertex AI Reasoning Engine: {endpoint}")
+        import vertexai
+        from vertexai import agent_engines
+
+        location = os.environ.get("GOOGLE_CLOUD_LOCATION", "us-central1")
+        vertexai.init(project=project_id, location=location)
+
+        ae = agent_engines.AgentEngine(endpoint)
+        response = ae.stream_query(
+            user_id="trace_test_user",
+            message="I need to travel to SFO next Tuesday through Friday. Book flights, hotel, car, and check weather."
+        )
+        
+        final_response = ""
+        for event in response:
+            is_dict = isinstance(event, dict)
+            content = event.get("content") if is_dict else getattr(event, "content", None)
+            if content:
+                parts = content.get("parts", []) if is_dict else getattr(content, "parts", [])
+                for part in parts:
+                    text = part.get("text") if is_dict else getattr(part, "text", None)
+                    if text:
+                        final_response += text
+                    # Capture tool calls as well
+                    if is_dict and "function_call" in part:
+                        final_response += f"Tool call: {part['function_call']['name']}\n"
+
+        assert final_response, "No response from Reasoning Engine."
+        data = {"status": "complete"}
+    else:
+        async with httpx.AsyncClient(timeout=180.0) as client:
+            response = await client.post(endpoint, json=payload)
+            assert response.status_code == 200, f"Request failed: {response.status_code} {response.text[:200]}"
+            data = response.json()
+            assert data.get("status") == "complete", f"Orchestration did not complete: {data}"
 
     print("Request succeeded. Waiting for traces to propagate...")
 

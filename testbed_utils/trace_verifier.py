@@ -186,9 +186,17 @@ class CloudTraceVerifier:
                 orderBy="start",
             )
             response = request.execute()
+            
+            for trace_summary in response.get("traces", []):
+                trace_id = trace_summary.get("traceId", "")
+                try:
+                    trace_data = service.projects().traces().get(
+                        projectId=self.project_id,
+                        traceId=trace_id
+                    ).execute()
+                except Exception as get_err:
+                    continue
 
-            for trace_data in response.get("traces", []):
-                trace_id = trace_data.get("traceId", "")
                 spans = []
                 for span_data in trace_data.get("spans", []):
                     spans.append(SpanInfo(
@@ -197,6 +205,7 @@ class CloudTraceVerifier:
                         parent_span_id=span_data.get("parentSpanId", ""),
                         start_time=span_data.get("startTime", ""),
                         end_time=span_data.get("endTime", ""),
+                        attributes=span_data.get("labels", {})
                     ))
                 traces.append(TraceInfo(trace_id=trace_id, spans=spans))
 

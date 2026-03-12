@@ -4,6 +4,10 @@ resource "google_cloud_run_v2_service" "flight_specialist" {
   project  = var.project_id
   ingress  = "INGRESS_TRAFFIC_INTERNAL_ONLY"
 
+  labels = {
+    testbed = "my-agent-testbed"
+  }
+
   template {
     service_account = google_service_account.flight_specialist.email
 
@@ -55,6 +59,10 @@ resource "google_cloud_run_v2_service" "weather_specialist" {
   project  = var.project_id
   ingress  = "INGRESS_TRAFFIC_INTERNAL_ONLY"
 
+  labels = {
+    testbed = "my-agent-testbed"
+  }
+
   template {
     service_account = google_service_account.weather_specialist.email
 
@@ -105,6 +113,10 @@ resource "google_cloud_run_v2_service" "profile_mcp" {
   location = var.region
   project  = var.project_id
   ingress  = "INGRESS_TRAFFIC_INTERNAL_ONLY"
+
+  labels = {
+    testbed = "my-agent-testbed"
+  }
 
   template {
     service_account = google_service_account.profile_mcp.email

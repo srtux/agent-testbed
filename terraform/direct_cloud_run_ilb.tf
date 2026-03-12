@@ -57,6 +57,8 @@ resource "google_compute_forwarding_rule" "flight_specialist_ilb" {
   subnetwork            = data.google_compute_subnetwork.default.id
   target                = google_compute_region_target_http_proxy.flight_specialist_ilb[0].id
   port_range            = "80"
+
+  depends_on = [google_compute_subnetwork.ilb_proxy_only]
 }
 
 # --- Weather Specialist ILB ---
@@ -101,6 +103,8 @@ resource "google_compute_forwarding_rule" "weather_specialist_ilb" {
   subnetwork            = data.google_compute_subnetwork.default.id
   target                = google_compute_region_target_http_proxy.weather_specialist_ilb[0].id
   port_range            = "80"
+
+  depends_on = [google_compute_subnetwork.ilb_proxy_only]
 }
 
 # --- Profile MCP ILB ---
@@ -145,4 +149,6 @@ resource "google_compute_forwarding_rule" "profile_mcp_ilb" {
   subnetwork            = data.google_compute_subnetwork.default.id
   target                = google_compute_region_target_http_proxy.profile_mcp_ilb[0].id
   port_range            = "80"
+
+  depends_on = [google_compute_subnetwork.ilb_proxy_only]
 }
