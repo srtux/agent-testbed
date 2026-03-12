@@ -42,6 +42,14 @@ resource "google_cloud_run_v2_service" "flight_specialist" {
         value = "flight-specialist"
       }
       env {
+        name  = "GOOGLE_GENAI_USE_VERTEXAI"
+        value = "true"
+      }
+      env {
+        name  = "GOOGLE_CLOUD_PROJECT"
+        value = var.project_id
+      }
+      env {
         name  = "HOTEL_SPECIALIST_URL"
         value = "${local.hotel_specialist_url}/chat"
       }
@@ -95,6 +103,14 @@ resource "google_cloud_run_v2_service" "weather_specialist" {
       env {
         name  = "OTEL_SERVICE_NAME"
         value = "weather-specialist"
+      }
+      env {
+        name  = "GOOGLE_GENAI_USE_VERTEXAI"
+        value = "true"
+      }
+      env {
+        name  = "GOOGLE_CLOUD_PROJECT"
+        value = var.project_id
       }
       env {
         name  = "INVENTORY_MCP_URL"

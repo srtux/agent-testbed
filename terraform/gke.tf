@@ -49,6 +49,10 @@ resource "kubernetes_deployment" "hotel_specialist" {
             value = var.project_id
           }
           env {
+            name  = "GOOGLE_GENAI_USE_VERTEXAI"
+            value = "true"
+          }
+          env {
             name  = "INVENTORY_MCP_URL"
             value = "http://gke-inventory-mcp-service/sse"
           }
