@@ -18,7 +18,7 @@ async def test_full_agent_orchestration():
     """
     print(f"\nSending payload to {ENDPOINT}")
 
-    prompt_text = "I need to travel to SFO for a convention next Tuesday and return next Friday. Can you build the entire itinerary?"
+    prompt_text = "I need to travel to SFO from JFK for a convention on May 12, 2026 and return on May 15, 2026. Can you build the entire itinerary?"
     user_id = "integration_tester_001"
 
     if ENDPOINT.startswith("projects/"):
@@ -71,17 +71,26 @@ async def test_full_agent_orchestration():
         data = {"status": "complete", "orchestration_summary": final_response}
 
     else:
-        payload = {
+        payload_1 = {
             "user_id": user_id,
             "prompt": prompt_text
         }
 
         async with httpx.AsyncClient(timeout=180.0) as client:
-            response = await client.post(ENDPOINT, json=payload)
-
-            # 1. We successfully connected to the router
-            assert response.status_code == 200, f"Router failed with status {response.status_code}: {response.text}"
-
+            # Turn 1: Intent
+            response = await client.post(ENDPOINT, json=payload_1)
+            assert response.status_code == 200, f"Router Turn 1 failed: {response.status_code}"
+            data_1 = response.json()
+            session_id = data_1.get("session_id")
+            
+            # Turn 2: Auth (Member ID)
+            payload_2 = {
+                "user_id": user_id,
+                "prompt": "My member ID is M-12345",
+                "session_id": session_id
+            }
+            response = await client.post(ENDPOINT, json=payload_2)
+            assert response.status_code == 200, f"Router Turn 2 failed: {response.status_code}"
             data = response.json()
             print(f"\nRouter Response:\n{json.dumps(data, indent=2)}")
 

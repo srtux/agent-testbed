@@ -44,37 +44,54 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 PROMPTS = [
-    "My flight to Tokyo was canceled. Read my customer profile to find my preferences, check the weather in Tokyo, find a new flight, book a hotel that matches my profile, and secure a rental car. Summarize everything.",
-    "I need an emergency re-booking for London due to weather. Please check my CR profile, find a flight and hotel, make sure I have a rental car, and let me know the final confirmation.",
-    "My trip to Paris is in jeopardy because of a missed connection. Grab my preferences, verify Paris weather, book a new flight and adjust my hotel and car rental accordingly."
+    "I want to go on a vacation to Tokyo.",
+    "I need to book a travel to London.",
+    "I am planning a trip to Paris."
 ]
 
 def generate_traffic(request: Request):
     """Cloud Function entry point triggered by Cloud Scheduler."""
     
-    # We create a root active span here from which the entire A2A and MCP waterfall descends.
     with tracer.start_as_current_span("traffic_generator.trigger_waterfall") as span:
         prompt = random.choice(PROMPTS)
         user_id = f"user_{random.randint(1000, 9999)}"
+        member_id = "M-12345"
         
-        logger.info(f"Initiating travel concierge trace waterfall for {user_id}")
-        span.set_attribute("gen_ai.prompt", prompt)
+        logger.info(f"Initiating 2-step flow for {user_id}")
+        span.set_attribute("gen_ai.prompt.initial", prompt)
         
         ae1_url = os.environ.get("ROOT_ROUTER_URL")
         if not ae1_url:
-            logger.error("ROOT_ROUTER_URL environment variable is not set. Cannot generate traffic.")
+            logger.error("ROOT_ROUTER_URL environment variable is not set.")
             return json.dumps({"status": "error", "message": "ROOT_ROUTER_URL not configured"}), 500, {'Content-Type': 'application/json'}
 
-        payload = {"user_id": user_id, "prompt": prompt}
-
+        # --- Step 1: Initial Intent ---
+        payload_1 = {"user_id": user_id, "prompt": prompt}
         try:
-            # The RequestsInstrumentor ensures traceparent is sent to RootRouter
-            res = requests.post(ae1_url, json=payload, timeout=300.0)
-            res.raise_for_status()
+            logger.info("Sending Turn 1: Initial Intent")
+            res_1 = requests.post(ae1_url, json=payload_1, timeout=300.0)
+            res_1.raise_for_status()
+            res_1_data = res_1.json()
             
-            logger.info("Trace execution completed successfully.")
-            return json.dumps({"status": "success", "response": res.json()}), 200, {'Content-Type': 'application/json'}
-            
+            session_id = res_1_data.get("session_id")
+            logger.info(f"Turn 1 response received. session_id={session_id}")
+
+            # --- Step 2: Provide Member ID (Auth Gate) ---
+            if session_id:
+                 payload_2 = {
+                     "user_id": user_id, 
+                     "prompt": f"My member ID is {member_id}", 
+                     "session_id": session_id
+                 }
+                 logger.info("Sending Turn 2: Providing Member ID")
+                 res_2 = requests.post(ae1_url, json=payload_2, timeout=300.0)
+                 res_2.raise_for_status()
+                 logger.info("2-step flow completed successfully.")
+                 return json.dumps({"status": "success", "response": res_2.json()}), 200, {'Content-Type': 'application/json'}
+            else:
+                 logger.warning("Turn 1 did not return session_id, skipping turn 2")
+                 return json.dumps({"status": "partial_success", "response": res_1_data}), 200, {'Content-Type': 'application/json'}
+
         except Exception as e:
             logger.error(f"Trace execution failed: {e}")
             span.record_exception(e)

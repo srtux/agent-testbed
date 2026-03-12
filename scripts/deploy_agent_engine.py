@@ -59,10 +59,18 @@ def create_agent(config, custom_domain, service_urls=None, existing_agents_looku
     spec = importlib.util.spec_from_file_location(module_name, os.path.join(agent_dir, "main.py"))
     agent_module = importlib.util.module_from_spec(spec)
     sys.modules[module_name] = agent_module
+
     spec.loader.exec_module(agent_module)
 
     # Register by value to ensure all standalone agent code is serialized
     cloudpickle.register_pickle_by_value(agent_module)
+    
+    # Dynamically register all nested packages inside the agent's directory
+    # so cloudpickle serializes them by value as well, preventing ModuleNotFoundError on remote.
+    for name, cp_module in list(sys.modules.items()):
+        if hasattr(cp_module, "__file__") and cp_module.__file__:
+            if cp_module.__file__.startswith(agent_dir):
+                cloudpickle.register_pickle_by_value(cp_module)
     
     # Also register testbed_utils to prevent remote ModuleNotFoundError
     import testbed_utils.telemetry
@@ -187,7 +195,7 @@ def create(custom_domain, service_urls=None, psc_network_attachment=None, vpc_pr
     """Deploy all configured ADK agents in parallel. Returns dict of agent_name -> resource_name."""
     agent_configs = [
         {"name": "RootRouter", "dir": "agents/RootRouter"},
-        # {"name": "BookingOrchestrator", "dir": "agents/BookingOrchestrator"}
+        {"name": "BookingOrchestrator", "dir": "agents/BookingOrchestrator"}
     ]
 
 
