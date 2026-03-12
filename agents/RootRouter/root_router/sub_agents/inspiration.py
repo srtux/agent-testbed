@@ -1,6 +1,7 @@
 import os
 import logging
 from google.adk.agents import LlmAgent
+from google.adk.tools import google_search
 
 # Relative import from parent package
 from ..prompt import INSPIRATION_INSTRUCTION
@@ -29,5 +30,6 @@ inspiration_agent = LlmAgent(
     model=DEFAULT_FLASH_MODEL,
     description="Helps users who don't have a destination decide on a vacation spot.",
     static_instruction=INSPIRATION_INSTRUCTION,
+    tools=[google_search],
     sub_agents=[place_agent, poi_agent]
 )

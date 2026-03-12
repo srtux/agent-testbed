@@ -12,6 +12,7 @@ from ..prompt import PLANNING_INSTRUCTION
 from mcp.client.sse import sse_client
 from mcp.client.session import ClientSession
 from opentelemetry.propagate import inject
+from testbed_utils.config import STATION_MAP
 
 logger = logging.getLogger(__name__)
 DEFAULT_PRO_MODEL = os.environ.get("PRO_MODEL", "gemini-2.5-pro")
@@ -30,28 +31,28 @@ async def research_destination(destination: str, dates: str) -> dict:
         credentials.refresh(auth_req)
         headers = {"Authorization": f"Bearer {credentials.token}"}
 
-        import asyncio
-        connect_fut = sse_client(mcp_url, headers=headers)
-        async with asyncio.wait_for(connect_fut, timeout=10.0) as (read, write):
+        async with sse_client(mcp_url, headers=headers) as (read, write):
             async with ClientSession(read, write) as session:
                 await session.initialize()
                 meta = {}
                 inject(meta)
 
                 # 1. Weather Query (GSOD)
+                station = STATION_MAP.get(destination.upper()[:3], "724940")
                 weather_sql = f"""
-                SELECT temp, max, min, prcp 
+                SELECT temp, max, min, prcp
                 FROM `bigquery-public-data.noaa_gsod.gsod2023`
-                WHERE stn='724940'
+                WHERE stn='{station}'
                 ORDER BY date DESC LIMIT 5
                 """
                 # 2. Popularity Query
+                safe_dest = "".join(c for c in destination if c.isalnum() or c in " -")
                 wiki_sql = f"""
-                SELECT sum_views 
+                SELECT sum_views
                 FROM (
-                    SELECT SUM(views) as sum_views 
+                    SELECT SUM(views) as sum_views
                     FROM `bigquery-public-data.wikipedia.pageviews_2024`
-                    WHERE title = '{destination}'
+                    WHERE title = '{safe_dest}'
                 )
                 """
 

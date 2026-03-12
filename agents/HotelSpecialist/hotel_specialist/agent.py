@@ -1,7 +1,6 @@
 import os
 import json
 import logging
-import httpx
 from google.adk.agents import LlmAgent
 
 # Relative imports from current package
@@ -55,22 +54,10 @@ async def fetch_hotel_inventory(user_id: str, destination: str, dates: str) -> d
 
     return {"status": "available", "cost": 250, "hotel_name": "Cloud Suites"}
 
-# --- A2A HTTP Delegation Tool ---
-
-async def consult_car_rental(user_id: str, dates: str, destination: str) -> dict:
-    """Delegates to the Car Rental Specialist."""
-    logger.info(f"Delegating to CarRentalSpecialist for {user_id}")
-    car_rental_url = os.environ.get("CAR_RENTAL_SPECIALIST_URL", "http://localhost:8085/chat")
-
-    async with httpx.AsyncClient() as client:
-        payload = {"user_id": user_id, "dates": dates, "destination": destination}
-        res = await client.post(car_rental_url, json=payload, timeout=60.0)
-        return res.json()
-
 # --- Agent ---
 agent = LlmAgent(
     name="HotelSpecialist",
     model=DEFAULT_PRO_MODEL,
     static_instruction=HOTEL_SPECIALIST_INSTRUCTION,
-    tools=[calculate_nightly_rate, fetch_hotel_inventory, consult_car_rental],
+    tools=[calculate_nightly_rate, fetch_hotel_inventory],
 )
