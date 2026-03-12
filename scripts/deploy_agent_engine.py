@@ -63,6 +63,11 @@ def create_agent(config, custom_domain, service_urls=None, existing_agents_looku
 
     # Register by value to ensure all standalone agent code is serialized
     cloudpickle.register_pickle_by_value(agent_module)
+    
+    # Also register testbed_utils to prevent remote ModuleNotFoundError
+    import testbed_utils.telemetry
+    cloudpickle.register_pickle_by_value(testbed_utils.telemetry)
+    
     agent_obj = agent_module.agent
 
     adk_app = AdkApp(agent=agent_obj)

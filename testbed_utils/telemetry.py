@@ -51,6 +51,14 @@ def _create_authenticated_exporter(OTLPSpanExporter):
         return OTLPSpanExporter()
 
 
+def setup_authenticated_transport():
+    """Hooks into Requests and HTTPX to inject OIDC tokens for service-to-service auth."""
+    from opentelemetry.instrumentation.requests import RequestsInstrumentor
+    from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+    
+    _setup_oidc_auth(RequestsInstrumentor(), HTTPXClientInstrumentor())
+
+
 def setup_telemetry(force_cloud_trace: bool = False):
     """
     Initializes OpenTelemetry for ADK Agents and FastAPI services.
@@ -96,7 +104,7 @@ def setup_telemetry(force_cloud_trace: bool = False):
         GoogleGenAiSdkInstrumentor().instrument()
         
         # We wrap the underlying transport to inject OIDC tokens for service-to-service auth
-        _setup_oidc_auth(RequestsInstrumentor(), HTTPXClientInstrumentor())
+        setup_authenticated_transport()
         
     except ImportError as e:
         print(f"Warning: Telemetry dependencies not fully installed: {e}", file=sys.stderr)

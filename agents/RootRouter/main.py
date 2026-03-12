@@ -1,3 +1,7 @@
+from testbed_utils.telemetry import setup_authenticated_transport
+
+setup_authenticated_transport()
+
 import os
 import re
 import json
@@ -133,33 +137,14 @@ async def consult_flight_specialist(user_id: str, destination: str, dates: str, 
     # request_dict already created above
     request_dict["profile_context"] = profile_data
 
-    logger.info(f"Delegating to FlightSpecialist for destination: {destination}")
-
-    logger.warning(f"[DEBUG_TOOL] Calling FlightSpecialist at {flight_specialist_url}")
-    headers = {}
-    if "localhost" not in flight_specialist_url:
-        try:
-            import google.auth
-            import google.auth.transport.requests
-            from google.oauth2 import id_token
-            
-            auth_req = google.auth.transport.requests.Request()
-            audience = os.environ.get("FLIGHT_SPECIALIST_AUDIENCE")
-            if not audience:
-                parts = flight_specialist_url.split('/')
-                audience = f"{parts[0]}//{parts[2]}"
-            token = id_token.fetch_id_token(auth_req, audience)
-            if token:
-                headers["Authorization"] = f"Bearer {token}"
-                logger.warning(f"[DEBUG_TOOL] Injected OIDC token for {flight_specialist_url}")
-        except Exception as e:
-            logger.warning(f"[DEBUG_TOOL] Could not generate OIDC token for {flight_specialist_url}: {e}")
+    # OIDC tokens are injected automatically by the httpx request_hook
+    # installed via setup_authenticated_transport().
+    logger.info(f"Calling FlightSpecialist at {flight_specialist_url}")
 
     async with httpx.AsyncClient() as client:
         response = await client.post(
             flight_specialist_url,
             json=request_dict,
-            headers=headers,
             timeout=60.0
         )
     logger.warning(f"[DEBUG_TOOL] FlightSpecialist response status: {response.status_code}")

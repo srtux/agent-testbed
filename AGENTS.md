@@ -12,14 +12,9 @@ Agent Engine automatically initializes OpenTelemetry when `GOOGLE_CLOUD_AGENT_EN
 
 If you call `trace.set_tracer_provider()` again, you will **overwrite** the platform's provider, breaking trace export.
 
-The guard in `testbed_utils/telemetry.py` handles this:
-```python
-enable_manual_trace = os.environ.get(
-    "GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY", "false"
-).lower() != "true"
-```
+**However, Agent Engine agents MUST call `setup_authenticated_transport()`** from `testbed_utils.telemetry` at module level to install OIDC auth hooks required for outbound service-to-service calls (e.g., RootRouter → FlightSpecialist).
 
-**Only Cloud Run and GKE agents call `setup_telemetry()`.** Agent Engine agents just import their `agent` object and let the platform handle the rest.
+**Only Cloud Run and GKE agents call `setup_telemetry()`.** Agent Engine agents call `setup_authenticated_transport()`.
 
 ### 2. Use `opentelemetry-exporter-otlp-proto-grpc` — NOT `opentelemetry-exporter-gcp-trace`
 
@@ -113,7 +108,7 @@ The `_create_authenticated_exporter()` function reads this env var to decide whe
 
 When adding a new agent to this testbed:
 
-1. **Agent Engine agents**: Do NOT call `setup_telemetry()`. Just define your `agent` object.
+1. **Agent Engine agents**: Call `setup_authenticated_transport()` at module level to install OIDC auth hooks. Do NOT call `setup_telemetry()`.
 2. **Cloud Run / GKE agents**:
    - Call `setup_telemetry()` at module level (before FastAPI app creation)
    - Call `FastAPIInstrumentor.instrument_app(app)` after creating the FastAPI app
@@ -126,7 +121,7 @@ When adding a new agent to this testbed:
 
 | Mistake | Why It's Wrong | Correct Approach |
 |---------|---------------|-----------------|
-| Calling `setup_telemetry()` in Agent Engine agents | Overwrites platform's TracerProvider | Let Agent Engine handle it |
+| Calling `setup_telemetry()` in Agent Engine agents | Overwrites platform's TracerProvider | Call `setup_authenticated_transport()` instead |
 | Using `opentelemetry-exporter-gcp-trace` | Deprecated, lossy format conversion | Use `opentelemetry-exporter-otlp-proto-grpc` |
 | `OTLPSpanExporter()` without credentials | Fails silently against telemetry.googleapis.com | Use `_create_authenticated_exporter()` |
 | Setting `session_id="default"` | All sessions collide, traces intermix | Use `str(uuid.uuid4())` |
