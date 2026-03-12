@@ -42,6 +42,10 @@ resource "google_cloud_run_v2_service" "flight_specialist" {
         value = "flight-specialist"
       }
       env {
+        name  = "DEPLOY_TIMESTAMP"
+        value = var.deploy_timestamp
+      }
+      env {
         name  = "GOOGLE_GENAI_USE_VERTEXAI"
         value = "true"
       }
@@ -105,6 +109,10 @@ resource "google_cloud_run_v2_service" "weather_specialist" {
         value = "weather-specialist"
       }
       env {
+        name  = "DEPLOY_TIMESTAMP"
+        value = var.deploy_timestamp
+      }
+      env {
         name  = "GOOGLE_GENAI_USE_VERTEXAI"
         value = "true"
       }
@@ -166,6 +174,10 @@ resource "google_cloud_run_v2_service" "profile_mcp" {
       env {
         name  = "OTEL_SERVICE_NAME"
         value = "profile-mcp"
+      }
+      env {
+        name  = "DEPLOY_TIMESTAMP"
+        value = var.deploy_timestamp
       }
     }
   }

@@ -252,7 +252,7 @@ async def test_remote_trace_generation():
     from testbed_utils.trace_verifier import CloudTraceVerifier
 
     verifier = CloudTraceVerifier(project_id=project_id)
-    traces = verifier.list_recent_traces(minutes=5)
+    traces = verifier.list_recent_traces(minutes=5, page_size=50)
 
     assert len(traces) > 0, "No traces found in Cloud Trace within the last 5 minutes"
 
@@ -286,7 +286,7 @@ async def test_remote_mcp_traces_exist():
 
     # Check if there are recent traces with MCP spans (from prior traffic)
     verifier = CloudTraceVerifier(project_id=project_id)
-    traces = verifier.list_recent_traces(minutes=15)
+    traces = verifier.list_recent_traces(minutes=15, page_size=50)
 
     if not traces:
         pytest.skip("No recent traces found — run traffic generator first")

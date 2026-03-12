@@ -183,7 +183,7 @@ class CloudTraceVerifier:
                 startTime=start_time,
                 endTime=end_time,
                 pageSize=page_size,
-                orderBy="start",
+                orderBy="start desc",
             )
             response = request.execute()
             

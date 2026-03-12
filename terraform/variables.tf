@@ -87,3 +87,9 @@ variable "traffic_schedule" {
   description = "Cron schedule for the traffic generator Cloud Scheduler job (default: every 5 minutes)"
   default     = "*/5 * * * *"
 }
+
+variable "deploy_timestamp" {
+  type        = string
+  description = "Timestamp to force Cloud Run redeploiments on same image tags"
+  default     = ""
+}

@@ -352,6 +352,7 @@ def main():
             "-var", f"region={region}",
             "-var", f"cluster_name={cluster_name}",
             "-var", f"custom_domain={custom_domain}",
+            "-var", f"deploy_timestamp={datetime.now().strftime('%Y%m%dt%H%M%S')}",
         ]
         for key, value in image_urls.items():
             tf_vars.extend(["-var", f"{key}={value}"])
@@ -438,6 +439,7 @@ def main():
                 "-var", f"region={region}",
                 "-var", f"cluster_name={cluster_name}",
                 "-var", f"custom_domain={custom_domain}",
+                "-var", f"deploy_timestamp={datetime.now().strftime('%Y%m%dt%H%M%S')}",
             ]
             for key, value in image_urls.items():
                 tf_vars.extend(["-var", f"{key}={value}"])

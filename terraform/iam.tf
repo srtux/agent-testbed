@@ -141,6 +141,13 @@ resource "google_project_iam_member" "profile_mcp_trace_agent" {
   member  = "serviceAccount:${google_service_account.profile_mcp.email}"
 }
 
+# --- Agent Engine Service Account Trace Permissions ---
+resource "google_project_iam_member" "agent_engine_trace_agent" {
+  project = var.project_id
+  role    = "roles/cloudtrace.agent"
+  member  = "serviceAccount:${local.agent_engine_sa}"
+}
+
 # --- GKE Workload Identity Configuration ---
 
 # Inventory MCP GSA permissions
@@ -194,5 +201,17 @@ resource "google_project_iam_member" "vertex_service_agent_dns_peer" {
   project = var.project_id
   role    = "roles/dns.peer"
   member  = "serviceAccount:service-${data.google_project.current.number}@gcp-sa-aiplatform.iam.gserviceaccount.com"
+}
+
+resource "google_project_iam_member" "vertex_service_agent_trace_agent" {
+  project = var.project_id
+  role    = "roles/cloudtrace.agent"
+  member  = "serviceAccount:service-${data.google_project.current.number}@gcp-sa-aiplatform.iam.gserviceaccount.com"
+}
+
+resource "google_project_iam_member" "vertex_service_agent_re_trace_agent" {
+  project = var.project_id
+  role    = "roles/cloudtrace.agent"
+  member  = "serviceAccount:service-${data.google_project.current.number}@gcp-sa-aiplatform-re.iam.gserviceaccount.com"
 }
 
