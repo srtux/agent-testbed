@@ -32,6 +32,21 @@ output "inventory_mcp_url" {
   description = "URL for Inventory MCP (custom domain or GKE LoadBalancer IP)"
 }
 
+output "flight_specialist_audience" {
+  value       = google_cloud_run_v2_service.flight_specialist.uri
+  description = "Audience for FlightSpecialist OIDC tokens"
+}
+
+output "weather_specialist_audience" {
+  value       = google_cloud_run_v2_service.weather_specialist.uri
+  description = "Audience for WeatherSpecialist OIDC tokens"
+}
+
+output "profile_mcp_audience" {
+  value       = google_cloud_run_v2_service.profile_mcp.uri
+  description = "Audience for Profile MCP OIDC tokens"
+}
+
 # --- Load Balancer IPs (only with custom domain) ---
 
 output "cloud_run_lb_ip" {

@@ -364,7 +364,8 @@ def main():
 
         # Read and display service URLs from Terraform outputs
         service_url_names = ["flight_specialist_url", "weather_specialist_url", "profile_mcp_url",
-                             "hotel_specialist_url", "car_rental_url", "inventory_mcp_url"]
+                             "hotel_specialist_url", "car_rental_url", "inventory_mcp_url",
+                             "flight_specialist_audience", "weather_specialist_audience", "profile_mcp_audience"]
         service_urls = {}
         print("\n  Service URLs:")
         for output_name in service_url_names:

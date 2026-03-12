@@ -144,8 +144,10 @@ async def consult_flight_specialist(user_id: str, destination: str, dates: str, 
             from google.oauth2 import id_token
             
             auth_req = google.auth.transport.requests.Request()
-            parts = flight_specialist_url.split('/')
-            audience = f"{parts[0]}//{parts[2]}"
+            audience = os.environ.get("FLIGHT_SPECIALIST_AUDIENCE")
+            if not audience:
+                parts = flight_specialist_url.split('/')
+                audience = f"{parts[0]}//{parts[2]}"
             token = id_token.fetch_id_token(auth_req, audience)
             if token:
                 headers["Authorization"] = f"Bearer {token}"

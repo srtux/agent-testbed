@@ -110,6 +110,9 @@ def create_agent(config, custom_domain, service_urls=None, existing_agents_looku
             "INVENTORY_MCP_URL": f"{service_urls.get('inventory_mcp_url', '')}/sse",
             "HOTEL_SPECIALIST_URL": f"{service_urls.get('hotel_specialist_url', '')}/chat",
             "CAR_RENTAL_SPECIALIST_URL": f"{service_urls.get('car_rental_url', '')}/chat",
+            "FLIGHT_SPECIALIST_AUDIENCE": service_urls.get('flight_specialist_audience', ''),
+            "WEATHER_SPECIALIST_AUDIENCE": service_urls.get('weather_specialist_audience', ''),
+            "PROFILE_MCP_AUDIENCE": service_urls.get('profile_mcp_audience', ''),
         }
     else:
         print(f"  Warning: No custom_domain or service_urls provided for {agent_obj.name}")
