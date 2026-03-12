@@ -472,6 +472,8 @@ def main():
         import urllib.error
         all_healthy = True
         for svc_name, svc_url in health_urls.items():
+            if "audience" in svc_name:
+                continue  # Audience values are for OIDC, not health-checkable endpoints
             health_url = svc_url.rstrip("/") + "/health"
             try:
                 req = urllib.request.Request(health_url, method="GET")

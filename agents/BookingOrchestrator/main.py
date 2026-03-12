@@ -1,34 +1,31 @@
+from testbed_utils.telemetry import setup_authenticated_transport
+
+setup_authenticated_transport()
+
 import os
 import json
 import logging
-import uuid
 
-DEFAULT_PRO_MODEL = os.environ.get("PRO_MODEL", "gemini-2.5-pro")
-DEFAULT_FLASH_MODEL = os.environ.get("FLASH_MODEL", "gemini-2.5-flash")
+from testbed_utils.config import DEFAULT_PRO_MODEL, DEFAULT_FLASH_MODEL
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-import httpx
 from pydantic import BaseModel, Field
-from google.genai import types
 from google.adk.agents import LlmAgent
 from google.adk.runners import InMemoryRunner
 from google.adk.tools.agent_tool import AgentTool
 from fastapi import FastAPI
 
-from mcp.client.sse import sse_client
-from mcp.client.session import ClientSession
-from opentelemetry.propagate import inject
+from testbed_utils.mcp_client import call_mcp_tool
+from testbed_utils.runner import run_agent
 
 
 # --- Local Tools (real compute) ---
 
 async def calculate_trip_cost(flight_cost: float, hotel_cost: float, car_cost: float, days: int, loyalty_tier: str) -> dict:
     """Aggregate costs from flight, hotel, and car rental. Apply loyalty discounts."""
-    LOYALTY_DISCOUNTS = {
-        "Gold": 0.15, "Silver": 0.10, "Bronze": 0.05,
-    }
+    from testbed_utils.config import LOYALTY_DISCOUNTS
     subtotal = flight_cost + (hotel_cost * days) + (car_cost * days)
     discount_pct = LOYALTY_DISCOUNTS.get(loyalty_tier, 0)
     discount = subtotal * discount_pct
@@ -84,41 +81,17 @@ class BookingRequest(BaseModel):
 
 async def finalize_bookings(request: BookingRequest) -> dict:
     """Finalizes all reservations using the GKE Inventory MCP server."""
-    # Support dictionary fallback if Pydantic validation was skipped/failed on Agent Engine
     is_dict = isinstance(request, dict)
     user_id = request.get("user_id", "") if is_dict else getattr(request, "user_id", "")
     request_dict = request if is_dict else request.model_dump()
 
     logger.info(f"Finalizing bookings for user: {user_id}")
-
     inventory_mcp_url = os.environ.get("INVENTORY_MCP_URL", "http://localhost:8091/sse")
 
-    if inventory_mcp_url.endswith("/mcp/call_tool"):
-        inventory_mcp_url = inventory_mcp_url.replace("/mcp/call_tool", "/sse")
-
-    # Trace edge: BookingOrchestrator -> GKE MCP using official FastMCP Session
-    try:
-        async with sse_client(inventory_mcp_url) as (read, write):
-            async with ClientSession(read, write) as session:
-                await session.initialize()
-                meta = {}
-                inject(meta)  # Propagate W3C traceparent into the _meta object
-
-                res = await session.call_tool(
-                    "commit_booking",
-                    arguments=request_dict,
-                    meta=meta
-                )
-                if res.content and len(res.content) > 0:
-                    data = res.content[0].text
-                    if isinstance(data, str):
-                        return json.loads(data)
-                    return data
-    except Exception as e:
-        logger.warning(f"FastMCP call failed, mocking response natively: {e}")
-        return {"status": "success", "confirmation": "CNF-12345"}
-
-    return {"status": "success", "confirmation": "CNF-12345"}
+    return await call_mcp_tool(
+        inventory_mcp_url, "commit_booking", request_dict,
+        fallback={"status": "success", "confirmation": "CNF-12345"},
+    )
 
 
 agent = LlmAgent(
@@ -151,12 +124,7 @@ async def chat_endpoint(request: OrchestrationRequest):
     logger.info(f"BookingOrchestrator received confirmed plans for user {request.user_id}")
     prompt = f"Please finalize the following itinerary and summarize: {request.itinerary_details} for user {request.user_id}"
 
-    final_response = None
-    async for event in runner.run_async(user_id=request.user_id, session_id=str(uuid.uuid4()), new_message=types.Content(role="user", parts=[types.Part.from_text(text=prompt)])):
-        if hasattr(event, "content") and event.content:
-            for part in event.content.parts:
-                if part.text:
-                    final_response = (final_response or "") + part.text
+    final_response = await run_agent(runner, request.user_id, prompt)
 
     # Log the complete prompt and response cycle to Cloud Logging
     logger.info(

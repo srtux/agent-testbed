@@ -8,20 +8,16 @@ setup_telemetry()
 logger = setup_logging()
 
 import os
-import json
-import uuid
 
 import httpx
 from fastapi import FastAPI
 from pydantic import BaseModel
-from google.genai import types
 from google.adk.agents import LlmAgent
 from google.adk.runners import InMemoryRunner
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
-from mcp.client.sse import sse_client
-from mcp.client.session import ClientSession
-from opentelemetry.propagate import inject
+from testbed_utils.mcp_client import call_mcp_tool
+from testbed_utils.runner import run_agent
 
 
 # --- Local Tool (real compute) ---
@@ -47,35 +43,13 @@ async def suggest_packing(temperature_c: float, condition: str) -> dict:
 async def fetch_weather(user_id: str, location: str) -> dict:
     """Mock weather endpoint acting as an edge to GKE MCP Inventory."""
     logger.info(f"Checking weather for {location} (User: {user_id})")
-
     inventory_mcp_url = os.environ.get("INVENTORY_MCP_URL", "http://localhost:8091/sse")
 
-    if inventory_mcp_url.endswith("/mcp/call_tool"):
-        inventory_mcp_url = inventory_mcp_url.replace("/mcp/call_tool", "/sse")
-
-    # Simulates edge WeatherSpecialist -> GKE MCP Inventory over FastMCP Session
-    try:
-        async with sse_client(inventory_mcp_url) as (read, write):
-            async with ClientSession(read, write) as session:
-                await session.initialize()
-                meta = {}
-                inject(meta)  # Propagate W3C traceparent into the _meta object
-
-                res = await session.call_tool(
-                    "get_weather",
-                    arguments={"location": location},
-                    meta=meta
-                )
-                if res.content and len(res.content) > 0:
-                    data = res.content[0].text
-                    if isinstance(data, str):
-                        return json.loads(data)
-                    return data
-    except Exception as e:
-        logger.warning(f"FastMCP mock weather failed natively due to: {e}")
-        return {"condition": "Sunny", "temperature_c": 22}
-
-    return {"condition": "Sunny", "temperature_c": 22}
+    return await call_mcp_tool(
+        inventory_mcp_url, "get_weather",
+        {"location": location},
+        fallback={"condition": "Sunny", "temperature_c": 22},
+    )
 
 
 # --- A2A HTTP Delegation Tool ---
@@ -125,13 +99,7 @@ async def chat_endpoint(request: WeatherRequest):
     itinerary_context = (request.itinerary_so_far or "")[:2000]
     prompt = f"Check weather for {request.destination}. Current itinerary: {itinerary_context}. User: {request.user_id}. Finalize with Booking Orchestrator."
 
-    final_response = None
-    async for event in runner.run_async(user_id=request.user_id, session_id=str(uuid.uuid4()), new_message=types.Content(role="user", parts=[types.Part.from_text(text=prompt)])):
-        if hasattr(event, "content") and event.content:
-            for part in event.content.parts:
-                if part.text:
-                    final_response = (final_response or "") + part.text
-
+    final_response = await run_agent(runner, request.user_id, prompt)
     return {"status": "complete", "weather_agent_summary": final_response}
 
 if __name__ == "__main__":

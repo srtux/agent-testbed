@@ -8,20 +8,16 @@ setup_telemetry()
 logger = setup_logging()
 
 import os
-import json
-import uuid
 
 import httpx
 from fastapi import FastAPI
 from pydantic import BaseModel
-from google.genai import types
 from google.adk.agents import LlmAgent
 from google.adk.runners import InMemoryRunner
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
-from mcp.client.sse import sse_client
-from mcp.client.session import ClientSession
-from opentelemetry.propagate import inject
+from testbed_utils.mcp_client import call_mcp_tool
+from testbed_utils.runner import run_agent
 
 
 # --- Local Tool (real compute) ---
@@ -39,35 +35,13 @@ async def calculate_nightly_rate(base_cost: float, destination: str) -> dict:
 async def fetch_hotel_inventory(user_id: str, destination: str, dates: str) -> dict:
     """Mock database check for hotels via GKE Inventory MCP."""
     logger.info(f"Checking hotel inventory for {destination} (User: {user_id})")
-
     inventory_mcp_url = os.environ.get("INVENTORY_MCP_URL", "http://localhost:8091/sse")
 
-    if inventory_mcp_url.endswith("/mcp/call_tool"):
-        inventory_mcp_url = inventory_mcp_url.replace("/mcp/call_tool", "/sse")
-
-    # GKE -> GKE edge using FastMCP Session
-    try:
-        async with sse_client(inventory_mcp_url) as (read, write):
-            async with ClientSession(read, write) as session:
-                await session.initialize()
-                meta = {}
-                inject(meta)  # Propagate W3C traceparent into the _meta object
-
-                res = await session.call_tool(
-                    "get_hotel_inventory",
-                    arguments={"destination": destination},
-                    meta=meta
-                )
-                if res.content and len(res.content) > 0:
-                    data = res.content[0].text
-                    if isinstance(data, str):
-                        return json.loads(data)
-                    return data
-    except Exception as e:
-        logger.warning(f"FastMCP call failed natively: {e}")
-        return {"status": "available", "cost": 250, "hotel_name": "Cloud Suites"}
-
-    return {"status": "available", "cost": 250, "hotel_name": "Cloud Suites"}
+    return await call_mcp_tool(
+        inventory_mcp_url, "get_hotel_inventory",
+        {"destination": destination},
+        fallback={"status": "available", "cost": 250, "hotel_name": "Cloud Suites"},
+    )
 
 
 # --- A2A HTTP Delegation Tool ---
@@ -117,13 +91,7 @@ async def chat_endpoint(request: HotelRequest):
     logger.info(f"Hotel Specialist coordinating lodging at {request.destination}")
     prompt = f"Find a hotel at {request.destination} for {request.dates}. Ensure you coordinate with Car Rental. User: {request.user_id}."
 
-    final_response = None
-    async for event in runner.run_async(user_id=request.user_id, session_id=str(uuid.uuid4()), new_message=types.Content(role="user", parts=[types.Part.from_text(text=prompt)])):
-        if hasattr(event, "content") and event.content:
-            for part in event.content.parts:
-                if part.text:
-                    final_response = (final_response or "") + part.text
-
+    final_response = await run_agent(runner, request.user_id, prompt)
     return {"status": "complete", "hotel_summary": final_response}
 
 if __name__ == "__main__":

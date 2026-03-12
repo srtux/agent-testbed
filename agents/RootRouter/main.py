@@ -4,12 +4,9 @@ setup_authenticated_transport()
 
 import os
 import re
-import json
 import logging
-import uuid
 
-DEFAULT_PRO_MODEL = os.environ.get("PRO_MODEL", "gemini-2.5-pro")
-DEFAULT_FLASH_MODEL = os.environ.get("FLASH_MODEL", "gemini-2.5-flash")
+from testbed_utils.config import DEFAULT_PRO_MODEL, DEFAULT_FLASH_MODEL
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -20,11 +17,9 @@ from pydantic import BaseModel, Field
 from google.adk.agents import LlmAgent
 from google.adk.runners import InMemoryRunner
 from google.adk.tools.agent_tool import AgentTool
-from google.genai import types
 
-from mcp.client.sse import sse_client
-from mcp.client.session import ClientSession
-from opentelemetry.propagate import inject
+from testbed_utils.mcp_client import call_mcp_tool
+from testbed_utils.runner import run_agent
 
 
 # --- Local Tool (real compute) ---
@@ -90,11 +85,7 @@ async def consult_flight_specialist(user_id: str, destination: str, dates: str, 
     flight_specialist_url = os.environ.get("FLIGHT_SPECIALIST_URL", "http://localhost:8082/chat")
     profile_mcp_url = os.environ.get("PROFILE_MCP_URL", "http://localhost:8090/sse")
 
-    if profile_mcp_url.endswith("/mcp/call_tool"):
-        profile_mcp_url = profile_mcp_url.replace("/mcp/call_tool", "/sse")
-
-    logger.warning(f"[DEBUG_TOOL] consult_flight_specialist START. user_id={user_id}")
-    # Create request_dict for downstream delegation upfront
+    logger.info(f"consult_flight_specialist called for user_id={user_id}")
     request_dict = {
         "user_id": user_id,
         "destination": destination,
@@ -102,37 +93,15 @@ async def consult_flight_specialist(user_id: str, destination: str, dates: str, 
         "departure_airport": departure_airport
     }
 
-    logger.info(f"Checking user profile via FastMCP for user: {user_id}, destination: {destination}")
-
+    logger.info(f"Checking user profile via MCP for user: {user_id}")
     profile_data = {"preferences": "Unknown"}
     if user_id:
-        try:
-            async with sse_client(profile_mcp_url) as (read, write):
-                async with ClientSession(read, write) as session:
-                    await session.initialize()
-                    meta = {}
-                    inject(meta)  # Propagate W3C traceparent into the _meta object
-
-                    res = await session.call_tool(
-                        "get_user_preferences",
-                        arguments={"user_id": user_id},
-                        meta=meta
-                    )
-                    if res.content and len(res.content) > 0:
-                        profile_data = res.content[0].text
-                        if isinstance(profile_data, str):
-                            try:
-                                parsed_data = json.loads(profile_data)
-                                if isinstance(parsed_data, dict):
-                                    profile_data = parsed_data
-                                else:
-                                    profile_data = {"data": parsed_data}
-                            except Exception:
-                                profile_data = {"raw_text": profile_data}
-        except Exception as e:
-            logger.warning(f"[DEBUG_TOOL] FastMCP call failed: {e}")
-            profile_data = {"error": str(e)}
-    logger.warning(f"[DEBUG_TOOL] Profile data gathered: {profile_data}")
+        profile_data = await call_mcp_tool(
+            profile_mcp_url, "get_user_preferences",
+            {"user_id": user_id},
+            fallback={"preferences": "Unknown"},
+        )
+    logger.info(f"Profile data gathered for user_id={user_id}")
 
     # request_dict already created above
     request_dict["profile_context"] = profile_data
@@ -147,30 +116,14 @@ async def consult_flight_specialist(user_id: str, destination: str, dates: str, 
             json=request_dict,
             timeout=60.0
         )
-    logger.warning(f"[DEBUG_TOOL] FlightSpecialist response status: {response.status_code}")
+    logger.info(f"FlightSpecialist response status: {response.status_code}")
     if response.status_code != 200:
         logger.error(f"Failed to delegate to FlightSpecialist. Status: {response.status_code}, Response: {response.text}")
     response.raise_for_status()
     return response.json()
 
 
-class DebugLlmAgent(LlmAgent):
-    def stream_query(self, message: str, **kwargs):
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.warning(f"[DEBUG_AGENT] stream_query INVOKED. message: {message}, kwargs: {kwargs}")
-        try:
-            for event in super().stream_query(message=message, **kwargs):
-                logger.warning(f"[DEBUG_AGENT] Yielding event type: {type(event)}")
-                yield event
-        except Exception as e:
-            logger.warning(f"[DEBUG_AGENT] stream_query CRASHED: {e}")
-            raise e
-        logger.warning(f"[DEBUG_AGENT] stream_query FINISHED")
-
-
-
-agent = DebugLlmAgent(
+agent = LlmAgent(
     name="RootRouter",
     model=DEFAULT_PRO_MODEL,
     static_instruction="""You are the Root Router for an Enterprise Travel Concierge.
@@ -199,17 +152,8 @@ async def health():
 @app.post("/chat")
 async def chat_endpoint(request: RouterRequest):
     logger.info(f"RootRouter Received root prompt for {request.user_id}")
-
-    final_response = None
-    session_id = str(uuid.uuid4())
     prompt_text = f"[System Context: The current user's ID is '{request.user_id}']\n{request.prompt}"
-    
-    async for event in runner.run_async(user_id=request.user_id, session_id=session_id, new_message=types.Content(role="user", parts=[types.Part.from_text(text=prompt_text)])):
-        if hasattr(event, "content") and event.content:
-            for part in event.content.parts:
-                if part.text:
-                    final_response = (final_response or "") + part.text
-
+    final_response = await run_agent(runner, request.user_id, prompt_text)
     return {"status": "complete", "orchestration_summary": final_response}
 
 if __name__ == "__main__":

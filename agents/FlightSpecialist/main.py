@@ -9,16 +9,15 @@ logger = setup_logging()
 
 import os
 import json
-import uuid
 from datetime import datetime, date
 
 from fastapi import FastAPI
 from pydantic import BaseModel
-from google.genai import types
 from google.adk.agents import LlmAgent
 from google.adk.runners import InMemoryRunner
 import httpx
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from testbed_utils.runner import run_agent
 
 # --- Local Tools (real compute, not just mock returns) ---
 
@@ -49,16 +48,9 @@ async def check_flight_availability(user_id: str, destination: str, dates: str) 
     from testbed_utils.config import FARE_TABLE
     logger.info(f"Checking flights for {destination} on {dates} (User: {user_id})")
     base_fare = FARE_TABLE.get(destination.upper()[:3], 400)
-    # Parse duration for surcharge
-    days = 5
-    try:
-        parts = [d.strip() for d in dates.replace(" to ", "-").replace("/", "-").split("-")]
-        if len(parts) >= 6:
-            start = date(int(parts[0]), int(parts[1]), int(parts[2]))
-            end = date(int(parts[3]), int(parts[4]), int(parts[5]))
-            days = max(1, (end - start).days)
-    except Exception:
-        pass
+    # Reuse validate_dates to get trip duration
+    date_info = await validate_dates(dates)
+    days = date_info.get("days", 5)
     total = base_fare + (days * 15)
     return {"status": "available", "cost": total, "airline": "CloudAir", "days": days, "base_fare": base_fare}
 
@@ -145,16 +137,7 @@ async def chat_endpoint(request: ChatRequest):
     pref_context = json.dumps(request.profile_context or {})[:1000]
     prompt = f"User {request.user_id} wants a flight from {request.departure_airport} to {request.destination} for {request.dates}. Preferences context: {pref_context}. Coordinate with Hotel and Weather specialists."
 
-    # Run the agent over the prompt
-    # The ADK run_async will create its own spans, appropriately as children
-    # of the FastAPI HTTP Request span (which has the remote trace ID)
-    final_response = None
-    async for event in runner.run_async(user_id=request.user_id, session_id=str(uuid.uuid4()), new_message=types.Content(role="user", parts=[types.Part.from_text(text=prompt)])):
-        if hasattr(event, "content") and event.content:
-            for part in event.content.parts:
-                if part.text:
-                    final_response = (final_response or "") + part.text
-
+    final_response = await run_agent(runner, request.user_id, prompt)
     return {"agent_response": final_response}
 
 if __name__ == "__main__":
