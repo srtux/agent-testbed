@@ -1,6 +1,7 @@
 import os
 import json
 import logging
+import httpx
 from pydantic import BaseModel
 from google.adk.agents import LlmAgent
 from google.adk.tools.agent_tool import AgentTool
@@ -100,15 +101,59 @@ async def finalize_bookings(request: BookingRequest) -> dict:
     return {"status": "success", "confirmation": "CNF-12345"}
 
 
+async def confirm_flight_booking(user_id: str, destination: str, dates: str, flight_details: str) -> dict:
+    """Confirms flight reservation with FlightSpecialist via A2A."""
+    url = os.environ.get("FLIGHT_SPECIALIST_URL", "http://localhost:8082/chat")
+    payload = {"user_id": user_id, "destination": destination, "dates": dates,
+               "profile_context": {"action": "confirm", "details": flight_details}}
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(url, json=payload, timeout=60.0)
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        logger.warning(f"Flight confirmation failed, using mock: {e}")
+        return {"status": "confirmed", "confirmation": "FLIGHT-MOCK-OK"}
+
+async def confirm_hotel_booking(user_id: str, destination: str, dates: str, hotel_details: str) -> dict:
+    """Confirms hotel reservation with HotelSpecialist via A2A."""
+    url = os.environ.get("HOTEL_SPECIALIST_URL", "http://localhost:8084/chat")
+    payload = {"user_id": user_id, "destination": destination, "dates": dates}
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(url, json=payload, timeout=60.0)
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        logger.warning(f"Hotel confirmation failed, using mock: {e}")
+        return {"status": "confirmed", "confirmation": "HOTEL-MOCK-OK"}
+
+async def confirm_car_booking(user_id: str, destination: str, dates: str, car_details: str) -> dict:
+    """Confirms car rental with CarRentalSpecialist via A2A."""
+    url = os.environ.get("CAR_RENTAL_SPECIALIST_URL", "http://localhost:8085/chat")
+    payload = {"user_id": user_id, "destination": destination, "dates": dates}
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(url, json=payload, timeout=60.0)
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        logger.warning(f"Car confirmation failed, using mock: {e}")
+        return {"status": "confirmed", "confirmation": "CAR-MOCK-OK"}
+
+
 agent = LlmAgent(
     name="BookingOrchestrator",
     model=DEFAULT_PRO_MODEL,
     static_instruction=BOOKING_ORCHESTRATOR_INSTRUCTION,
     tools=[
-        calculate_trip_cost, 
-        format_itinerary, 
-        AgentTool(agent=itinerary_validator), 
-        AgentTool(agent=payment_agent), 
+        calculate_trip_cost,
+        format_itinerary,
+        AgentTool(agent=itinerary_validator),
+        AgentTool(agent=payment_agent),
+        confirm_flight_booking,
+        confirm_hotel_booking,
+        confirm_car_booking,
         finalize_bookings
     ],
 )

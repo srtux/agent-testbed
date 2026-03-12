@@ -1,7 +1,6 @@
 import os
 import json
 import logging
-import httpx
 from google.adk.agents import LlmAgent
 
 # Relative imports from current package
@@ -63,22 +62,10 @@ async def fetch_weather(user_id: str, location: str) -> dict:
 
     return {"condition": "Sunny", "temperature_c": 22}
 
-# --- A2A HTTP Delegation Tool ---
-
-async def delegate_to_booking_orchestrator(user_id: str, itinerary_details: str) -> dict:
-    """Sends finalized travel plans to the Booking Orchestrator."""
-    logger.info(f"Delegating final confirmation to Booking Orchestrator for {user_id}")
-    booking_orch_url = os.environ.get("BOOKING_ORCHESTRATOR_URL", "http://localhost:8081/chat")
-
-    async with httpx.AsyncClient() as client:
-        payload = {"user_id": user_id, "itinerary_details": itinerary_details}
-        res = await client.post(booking_orch_url, json=payload, timeout=60.0)
-        return res.json()
-
 # --- Agent ---
 agent = LlmAgent(
     name="WeatherSpecialist",
     model=DEFAULT_PRO_MODEL,
     static_instruction=WEATHER_SPECIALIST_INSTRUCTION,
-    tools=[suggest_packing, fetch_weather, delegate_to_booking_orchestrator],
+    tools=[suggest_packing, fetch_weather],
 )

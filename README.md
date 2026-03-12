@@ -78,24 +78,23 @@ graph TD
         RemoteBQ[(Remote BigQuery MCP)]:::mcp
     end
 
-    %% Dependencies / Call Hierarchy
+    %% Dependencies / Call Hierarchy (v2 hub-and-spoke)
     User[/User Request/]:::user --> RootRouter
 
     RootRouter --> ProfileMCP
     Planning --> RemoteBQ
     Planning --> FlightSpecialist
-
-    FlightSpecialist --> Hotel
-    FlightSpecialist --> WeatherSpecialist
+    Planning --> Hotel
+    Planning --> Car
+    Planning --> BookingOrchestrator
 
     Hotel --> InvMCP
-    Hotel --> Car
-
     Car --> ProfileMCP
-
     WeatherSpecialist --> InvMCP
-    WeatherSpecialist --> BookingOrchestrator
 
+    BookingOrchestrator --> FlightSpecialist
+    BookingOrchestrator --> Hotel
+    BookingOrchestrator --> Car
     BookingOrchestrator --> InvMCP
 ```
 
@@ -130,14 +129,17 @@ flowchart TD
     Root -- "5a. Brainstorm" --> Insp
     Root -- "5b. Structure" --> Plan
 
-    %% Planning & Specialist triggers
+    %% Planning & Specialist triggers (v2 hub-and-spoke)
     Plan -- "6. Destination Insights" --> Remote
-    Plan -- "7. Coordinates" --> Flight
+    Plan -- "7a. Flight Search" --> Flight
+    Plan -- "7b. Hotel Search" --> Hotel[HotelSpecialist]:::agent
+    Plan -- "7c. Car Search" --> Car[CarRentalSpecialist]:::agent
 
     %% Downstream
-    Flight -- "8. Invoice" --> Orchestrator
-    Orchestrator -- "9. Charge" --> Payment
-    Orchestrator -- "10. Commit" --> Inv
+    Plan -- "8. Handoff" --> Orchestrator
+    Orchestrator -- "9. Confirm Specialists" --> Flight
+    Orchestrator -- "10. Charge" --> Payment
+    Orchestrator -- "11. Commit" --> Inv
 ```
 
 ## Tool & Interaction Taxonomy
@@ -146,7 +148,7 @@ A key design goal of this testbed is to exercise **every type of tool and agent 
 
 | Interaction Type | Network Hop | Span Pattern | Example in Testbed |
 | :--- | :--- | :--- | :--- |
-| **A2A HTTP delegation** | Yes (HTTP) | HTTP client → HTTP server → `gen_ai.agent` | RootRouter → FlightSpecialist |
+| **A2A HTTP delegation** | Yes (HTTP) | HTTP client → HTTP server → `gen_ai.agent` | PlanningAgent → FlightSpecialist |
 | **MCP SSE tool call** | Yes (SSE) | MCP client → SSE transport → `mcp.tool_call.*` | HotelSpecialist → Inventory_MCP |
 | **Local Python tool** | No | `gen_ai.tool` (in-process) | FlightSpecialist `validate_dates`, `check_flight_availability`; BookingOrchestrator `calculate_trip_cost`, `format_itinerary`; RootRouter `extract_travel_intent`; HotelSpecialist `calculate_nightly_rate`; CarRentalSpecialist `calculate_rental_price`; WeatherSpecialist `suggest_packing` |
 | **In-process sub-agent (transfer)** | No | Parent `gen_ai.agent` → child `gen_ai.agent` | FlightSpecialist → SeatSelector (`sub_agents=[]`) |
@@ -214,10 +216,10 @@ agent-testbed/
 │   ├── FlightSpecialist/     # Flight coordination (Cloud Run, port 8082)
 │   │   ├── main.py           # Loader wrapper
 │   │   └── flight_specialist/
-│   ├── WeatherSpecialist/    # Weather + booking delegation (Cloud Run, port 8083)
+│   ├── WeatherSpecialist/    # Weather forecasts + packing suggestions (Cloud Run, port 8083)
 │   │   ├── main.py           # Loader wrapper
 │   │   └── weather_specialist/
-│   ├── HotelSpecialist/      # Hotel inventory + car rental (GKE, port 8084)
+│   ├── HotelSpecialist/      # Hotel inventory + rate calculation (GKE, port 8084)
 │   │   ├── main.py           # Loader wrapper
 │   │   └── hotel_specialist/
 │   └── CarRentalSpecialist/  # Car rental + loyalty check (GKE, port 8085)
@@ -367,17 +369,22 @@ sequenceDiagram
     RootRouter->>RemoteBQ: execute_sql (Destination Insights)
     RemoteBQ-->>RootRouter: returns trends, weather
 
-    RootRouter->>Specialist: A2A Request (Flight/Hotel/Car)
-    activate Specialist
+    Note right of RootRouter: PlanningAgent fans out to specialists
+    RootRouter->>Specialist: A2A: Flight Search
+    Specialist-->>RootRouter: Flight details + seat
+    RootRouter->>Specialist: A2A: Hotel Search
     Specialist->>InvMCP: get_inventory
     InvMCP-->>Specialist: rates...
-    Specialist-->>RootRouter: Specialist Aggregation
-    deactivate Specialist
+    Specialist-->>RootRouter: Hotel details
+    RootRouter->>Specialist: A2A: Car Search
+    Specialist-->>RootRouter: Car details
 
-    RootRouter->>Booking: A2A Request (Invoice)
+    RootRouter->>Booking: A2A: Handoff to BookingOrchestrator
     activate Booking
     Note right of Booking: ItineraryValidator (In-process)
     Note right of Booking: PaymentAgent (Charge Auth)
+    Booking->>Specialist: confirm_flight/hotel/car
+    Specialist-->>Booking: confirmations
     Booking->>InvMCP: commit_booking
     InvMCP-->>Booking: confirmation CNF-12345
     Booking-->>RootRouter: Booked Itinerary

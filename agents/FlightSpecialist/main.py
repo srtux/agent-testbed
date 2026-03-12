@@ -44,7 +44,7 @@ async def chat_endpoint(request: ChatRequest):
     logger.info(f"Received request to process flights for {request.destination} (User: {request.user_id})")
 
     pref_context = json.dumps(request.profile_context or {})[:1000]
-    prompt = f"User {request.user_id} wants a flight from {request.departure_airport} to {request.destination} for {request.dates}. Preferences context: {pref_context}. Coordinate with Hotel and Weather specialists."
+    prompt = f"User {request.user_id} wants a flight from {request.departure_airport} to {request.destination} for {request.dates}. Preferences context: {pref_context}. Check availability and assign a seat if preferences are given."
 
     final_response = None
     async for event in runner.run_async(user_id=request.user_id, session_id=str(uuid.uuid4()), new_message=types.Content(role="user", parts=[types.Part.from_text(text=prompt)])):

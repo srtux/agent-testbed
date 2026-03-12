@@ -20,3 +20,9 @@ CAR_RATE_TABLE = {
 LOYALTY_DISCOUNTS = {
     "Gold": 0.15, "Silver": 0.10, "Bronze": 0.05,
 }
+
+STATION_MAP = {
+    "SFO": "724940", "JFK": "744860", "LAX": "722950",
+    "LHR": "037720", "NRT": "476710", "CDG": "071560",
+    "SYD": "947670", "ORD": "725300",
+}

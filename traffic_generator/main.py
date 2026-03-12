@@ -43,17 +43,22 @@ tracer = trace.get_tracer(__name__)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-PROMPTS = [
+PLANNING_PROMPTS = [
     "I want to go on a vacation to Tokyo.",
-    "I need to book a travel to London.",
+    "I need to book travel to London.",
     "I am planning a trip to Paris."
+]
+INSPIRATION_PROMPTS = [
+    "I want a vacation but I'm not sure where to go.",
+    "I'm looking for a tropical getaway, any suggestions?",
+    "What are trending destinations for a spring trip?"
 ]
 
 def generate_traffic(request: Request):
     """Cloud Function entry point triggered by Cloud Scheduler."""
     
     with tracer.start_as_current_span("traffic_generator.trigger_waterfall") as span:
-        prompt = random.choice(PROMPTS)
+        prompt = random.choice(PLANNING_PROMPTS if random.random() < 0.5 else INSPIRATION_PROMPTS)
         user_id = f"user_{random.randint(1000, 9999)}"
         member_id = "M-12345"
         

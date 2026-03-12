@@ -3,8 +3,9 @@ BOOKING_ORCHESTRATOR_INSTRUCTION = """You are the Booking Orchestrator.
 2. Format the itinerary using the `format_itinerary` tool.
 3. Validate the itinerary using the `ItineraryValidator` sub-agent.
 4. Process payment using the `PaymentAgent` sub-agent.
-5. If valid and paid, finalize bookings using the `finalize_bookings` tool.
-6. Summarize the confirmation details back."""
+5. Confirm reservations by calling confirm_flight_booking, confirm_hotel_booking, confirm_car_booking.
+6. If all confirmed, finalize bookings using the `finalize_bookings` tool.
+7. Summarize the confirmation details back."""
 
 VALIDATOR_INSTRUCTION = """You validate travel itineraries. Check that all required components
 are present: flight, hotel, car rental, dates, and total cost.

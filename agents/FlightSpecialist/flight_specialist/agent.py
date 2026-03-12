@@ -1,7 +1,6 @@
 import os
 import logging
 import json
-import httpx
 from datetime import datetime, date
 from google.adk.agents import LlmAgent
 
@@ -55,39 +54,12 @@ async def check_flight_availability(user_id: str, destination: str, dates: str) 
     return {"status": "available", "cost": total, "airline": "CloudAir", "days": days, "base_fare": base_fare}
 
 
-# --- A2A HTTP Delegation Tools ---
-
-async def delegate_to_hotel_specialist(user_id: str, destination: str, dates: str) -> dict:
-    """Delegates to the Hotel Specialist on GKE."""
-    logger.info(f"Delegating to HotelSpecialist for {user_id}")
-    hotel_url = os.environ.get("HOTEL_SPECIALIST_URL", "http://localhost:8084/chat")
-
-    async with httpx.AsyncClient() as client:
-        payload = {"user_id": user_id, "destination": destination, "dates": dates}
-        res = await client.post(hotel_url, json=payload, timeout=60.0)
-        if res.status_code >= 400:
-            return {"status": "mock_success", "hotel": "Fallback Inn"}
-        return res.json()
-
-async def delegate_to_weather_specialist(user_id: str, destination: str, itinerary_so_far: str) -> dict:
-    """Delegates to the Weather Specialist to check conditions and pass on the itinerary."""
-    logger.info(f"Delegating to WeatherSpecialist for {user_id}")
-    weather_url = os.environ.get("WEATHER_SPECIALIST_URL", "http://localhost:8083/chat")
-
-    async with httpx.AsyncClient() as client:
-        payload = {"user_id": user_id, "destination": destination, "itinerary_so_far": itinerary_so_far}
-        res = await client.post(weather_url, json=payload, timeout=60.0)
-        if res.status_code >= 400:
-            return {"status": "mock_success"}
-        return res.json()
-
-
 # --- Agent ---
 
 agent = LlmAgent(
     name="FlightSpecialist",
     model=DEFAULT_FLASH_MODEL,
     static_instruction=FLIGHT_SPECIALIST_INSTRUCTION,
-    tools=[validate_dates, check_flight_availability, delegate_to_hotel_specialist, delegate_to_weather_specialist],
+    tools=[validate_dates, check_flight_availability],
     sub_agents=[seat_selector],
 )

@@ -235,15 +235,23 @@ uv run test-remote
 
 ```
 TrafficGenerator -> RootRouter (Agent Engine)
-  └─> FlightSpecialist (Cloud Run) [A2A]
+  ├─> Profile_MCP (Cloud Run) [MCP/SSE]
+  ├─> InspirationAgent (in-process)
+  │     ├─> PlaceAgent (sub-agent)
+  │     └─> PoiAgent (sub-agent)
+  └─> PlanningAgent (in-process)
+        ├─> Remote BigQuery MCP (GCP) [MCP/SSE]
+        ├─> FlightSpecialist (Cloud Run) [A2A]
+        │     └─> SeatSelector (sub-agent)
         ├─> HotelSpecialist (GKE) [A2A]
-        │     ├─> Inventory_MCP (GKE) [MCP/SSE]
-        │     └─> CarRentalSpecialist (GKE) [A2A]
-        │           └─> Profile_MCP (Cloud Run) [MCP/SSE]
-        └─> WeatherSpecialist (Cloud Run) [A2A]
-              ├─> Inventory_MCP (GKE) [MCP/SSE]
-              └─> BookingOrchestrator (Agent Engine) [A2A]
-                    └─> Inventory_MCP (GKE) [MCP/SSE]
+        │     └─> Inventory_MCP (GKE) [MCP/SSE]
+        ├─> CarRentalSpecialist (GKE) [A2A]
+        │     └─> Profile_MCP (Cloud Run) [MCP/SSE]
+        └─> BookingOrchestrator (Agent Engine) [A2A]
+              ├─> ItineraryValidator (AgentTool)
+              ├─> PaymentAgent (AgentTool)
+              ├─> confirm_flight/hotel/car -> Specialists [A2A]
+              └─> Inventory_MCP (GKE) [MCP/SSE]
 ```
 
 ## Terraform Structure

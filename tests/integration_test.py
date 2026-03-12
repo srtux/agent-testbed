@@ -14,7 +14,7 @@ ENDPOINT = os.environ.get("ROOT_ROUTER_ENDPOINT", "http://localhost:8080/chat")
 async def test_full_agent_orchestration():
     """
     Sends a complex master prompt to the RootRouter.
-    The goal is to trigger the full distributed waterfall.
+    The goal is to trigger the full v2 hub-and-spoke orchestration.
     """
     print(f"\nSending payload to {ENDPOINT}")
 
@@ -102,8 +102,8 @@ async def test_full_agent_orchestration():
 
     # The prompt forces a trip to SFO which means:
     # 1. CR Profile is accessed for loyalty tier/home airport
-    # 2. FlightSpecialist routes hotels
-    # 3. WeatherSpecialist fetches conditions
+    # 2. PlanningAgent orchestrates specialists (v2 hub-and-spoke)
+    # 3. Specialists return results directly to PlanningAgent
     # 4. BookingOrchestrator finalizes it and gives a summary
     assert len(summary) > 20, "Summary is too short or missing."
     # Use broad matching to handle LLM non-determinism — any reference to the
@@ -157,7 +157,7 @@ async def test_hotel_specialist_isolated():
 
     print(f"\nEvaluating isolated call to HotelSpecialist: {url}")
     async with httpx.AsyncClient(timeout=60.0) as client:
-        # Hotel Specialist usually forwards to chain if needed, but accepts isolated requests
+        # Hotel Specialist returns inventory and rate details directly
         response = await client.post(url, json=payload)
         assert response.status_code == 200
         data = response.json()
@@ -187,3 +187,34 @@ async def test_profile_mcp_isolated():
                 print(f"Profile data: {res.content[0].text}")
     except Exception as e:
         pytest.fail(f"FastMCP isolated test failed: {e}")
+
+
+@pytest.mark.asyncio
+async def test_inspiration_flow():
+    """Tests the InspirationAgent path via RootRouter with an open-ended prompt."""
+    print(f"\nSending inspiration payload to {ENDPOINT}")
+
+    prompt_text = "I want a vacation but don't know where to go. Any suggestions?"
+    user_id = "integration_tester_inspiration"
+
+    if ENDPOINT.startswith("projects/"):
+        pytest.skip("Inspiration flow test only supported for HTTP endpoints.")
+
+    payload_1 = {
+        "user_id": user_id,
+        "prompt": prompt_text
+    }
+
+    async with httpx.AsyncClient(timeout=180.0) as client:
+        response = await client.post(ENDPOINT, json=payload_1)
+        assert response.status_code == 200, f"Router Turn 1 failed: {response.status_code}"
+        data = response.json()
+        summary = data.get("agent_response", data.get("orchestration_summary", "")).lower()
+        # Inspiration flow should suggest destinations
+        destination_terms = [
+            "suggest", "destination", "recommend", "trip", "vacation",
+            "beach", "city", "travel", "explore", "adventure",
+        ]
+        assert any(x in summary for x in destination_terms), (
+            f"Inspiration response did not contain expected terms. Got: {summary[:200]}"
+        )

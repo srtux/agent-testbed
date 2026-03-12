@@ -39,7 +39,7 @@ async def health():
 @app.post("/chat")
 async def chat_endpoint(request: HotelRequest):
     logger.info(f"Hotel Specialist coordinating lodging at {request.destination}")
-    prompt = f"Find a hotel at {request.destination} for {request.dates}. Ensure you coordinate with Car Rental. User: {request.user_id}."
+    prompt = f"Find a hotel at {request.destination} for {request.dates}. Return hotel inventory and rate details. User: {request.user_id}."
 
     final_response = None
     async for event in runner.run_async(user_id=request.user_id, session_id=str(uuid.uuid4()), new_message=types.Content(role="user", parts=[types.Part.from_text(text=prompt)])):
