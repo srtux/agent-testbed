@@ -139,17 +139,20 @@ async def consult_flight_specialist(user_id: str, destination: str, dates: str, 
 
     # OIDC tokens are injected automatically by the httpx request_hook
     # installed via setup_authenticated_transport().
-    logger.info(f"Calling FlightSpecialist at {flight_specialist_url}")
+    # --- FlightSpecialist Call Bypassed to isolate Profile_MCP ---
+    logger.warning(f"[DEBUG_TOOL] Returning Profile data only, bypassing FlightSpecialist.")
+    return {"profile_context": profile_data, "status": "mcp_isolated_test"}
 
+async def consult_booking_orchestrator(user_id: str, itinerary_details: str) -> dict:
+    """Delegates to the BookingOrchestrator to finalize and confirm the travel itinerary."""
+    booking_orch_url = os.environ.get("BOOKING_ORCHESTRATOR_URL", "http://localhost:8081/chat")
+    logger.info(f"Delegating confirmation to BookingOrchestrator for {user_id}")
+    
     async with httpx.AsyncClient() as client:
-        response = await client.post(
-            flight_specialist_url,
-            json=request_dict,
-            timeout=60.0
-        )
-    logger.warning(f"[DEBUG_TOOL] FlightSpecialist response status: {response.status_code}")
+        payload = {"user_id": user_id, "itinerary_details": itinerary_details}
+        response = await client.post(booking_orch_url, json=payload, timeout=60.0)
     if response.status_code != 200:
-        logger.error(f"Failed to delegate to FlightSpecialist. Status: {response.status_code}, Response: {response.text}")
+        logger.error(f"Failed to delegate to BookingOrchestrator. Status: {response.status_code}, Response: {response.text}")
     response.raise_for_status()
     return response.json()
 
@@ -177,11 +180,12 @@ agent = DebugLlmAgent(
     1. First, extract the travel intent from the user's request using extract_travel_intent.
     2. Classify the request type using the IntentClassifier tool.
     3. For new bookings or flight search requests, delegate to the Flight Specialist via consult_flight_specialist.
+    4. For finalizing bookings or confirming itineraries, delegate to the Booking Orchestrator via consult_booking_orchestrator.
 
-    CRITICAL: You MUST use the exact user_id provided in the [System Context] for all tool calls (especially `consult_flight_specialist`).
+    CRITICAL: You MUST use the exact user_id provided in the [System Context] for all tool calls (especially `consult_flight_specialist` and `consult_booking_orchestrator`).
     Do not ask the user for their departure airport if it's missing; just pass an empty string to the tool.
     DO NOT assume any tools exist other than the ones provided.""" ,
-    tools=[extract_travel_intent, AgentTool(agent=intent_classifier), consult_flight_specialist],
+    tools=[extract_travel_intent, AgentTool(agent=intent_classifier), consult_flight_specialist, consult_booking_orchestrator],
 )
 
 runner = InMemoryRunner(agent=agent)
