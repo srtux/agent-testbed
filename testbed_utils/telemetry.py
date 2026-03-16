@@ -75,9 +75,6 @@ def setup_telemetry(force_cloud_trace: bool = False):
         from opentelemetry.sdk.trace import TracerProvider
         from opentelemetry.sdk.trace.export import BatchSpanProcessor
         
-        # When running inside Agent Engine, the platform handles trace export
-        # automatically via GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY.
-        # For Cloud Run / local environments, set up the OTLP exporter manually.
         enable_manual_trace = os.environ.get("GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY", "false").lower() != "true"
 
         if force_cloud_trace or enable_manual_trace:
@@ -96,6 +93,8 @@ def setup_telemetry(force_cloud_trace: bool = False):
             provider.add_span_processor(processor)
             trace.set_tracer_provider(provider)
 
+
+
         from opentelemetry.instrumentation.google_genai import GoogleGenAiSdkInstrumentor
         from opentelemetry.instrumentation.requests import RequestsInstrumentor
         from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
@@ -110,15 +109,37 @@ def setup_telemetry(force_cloud_trace: bool = False):
         print(f"Warning: Telemetry dependencies not fully installed: {e}", file=sys.stderr)
 
 def _needs_oidc_auth(url):
-    """Determines if a URL requires OIDC token injection for service-to-service auth.
-    Matches Cloud Run native URLs, Cloud Functions, and custom domain URLs configured
-    via CUSTOM_DOMAIN env var."""
+    """Determines if a URL requires OIDC token injection for service-to-service auth."""
     if ".a.run.app" in url or ".cloudfunctions.net" in url:
         return True
     custom_domain = os.environ.get("CUSTOM_DOMAIN", "")
     if custom_domain and custom_domain in url:
         return True
+        
+    # Check audience map for IP/Internal URLs
+    import json
+    try:
+        audience_map = json.loads(os.environ.get("URL_AUDIENCE_MAP", "{}"))
+        if any(url.startswith(k) for k in audience_map.keys()):
+            return True
+    except Exception:
+        pass
+        
     return False
+
+def _get_audience(url):
+    """Resolves the OIDC audience for a given URL."""
+    import json
+    try:
+        audience_map = json.loads(os.environ.get("URL_AUDIENCE_MAP", "{}"))
+        for k, v in audience_map.items():
+            if url.startswith(k):
+                return v
+    except Exception:
+        pass
+    # Fallback to root URL audience
+    parts = url.split('/')
+    return f"{parts[0]}//{parts[2]}"
 
 # OIDC tokens expire after ~1 hour; refresh 5 minutes before expiry
 _TOKEN_TTL_SECONDS = 55 * 60
@@ -151,8 +172,7 @@ def _setup_oidc_auth(requests_inst, httpx_inst):
     def requests_request_hook(span, request):
         url = request.url
         if _needs_oidc_auth(url):
-            parts = url.split('/')
-            audience = f"{parts[0]}//{parts[2]}"
+            audience = _get_audience(url)
             token = get_oidc_token(audience)
             if token:
                 request.headers["Authorization"] = f"Bearer {token}"
@@ -163,9 +183,7 @@ def _setup_oidc_auth(requests_inst, httpx_inst):
     def httpx_request_hook(span, request):
         url = str(request.url)
         if _needs_oidc_auth(url):
-            # Determine audience (the root URL)
-            parts = url.split('/')
-            audience = f"{parts[0]}//{parts[2]}"
+            audience = _get_audience(url)
             token = get_oidc_token(audience)
             if token:
                 request.headers["Authorization"] = f"Bearer {token}"

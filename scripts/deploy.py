@@ -61,7 +61,7 @@ def run_command(command, cwd=None, env=None, check=True, log_file=None, capture_
         return None
 
 
-def build_docker_image(name, path, image_url, root_dir, use_docker, log_path):
+def build_docker_image(name, path, image_url, root_dir, use_docker, log_path, project_id=None):
     """Worker function for building a single Docker image."""
     full_path = root_dir / path
     with open(log_path, "w") as f:
@@ -100,11 +100,15 @@ images:
                 cb.write(cloudbuild_content.strip() + "\n")
 
             try:
-                run_command([
+                cmd = [
                     "gcloud", "builds", "submit",
                     "--config", str(cloudbuild_path),
-                    "."
-                ], cwd=root_dir, log_file=f)
+                ]
+                if project_id:
+                    cmd.extend(["--project", project_id])
+                cmd.append(".")
+                
+                run_command(cmd, cwd=root_dir, log_file=f)
             finally:
                 if cloudbuild_path.exists():
                     os.remove(cloudbuild_path)
@@ -113,25 +117,30 @@ images:
     return name
 
 
-def package_traffic_generator(traffic_gen_dir, zip_path_base, project_id, region, log_path):
+def package_traffic_generator(traffic_gen_dir, zip_path_base, project_id, region, log_path, bucket_name):
     """Worker function for packaging and uploading traffic generator."""
     with open(log_path, "w") as f:
         f.write(f"📦 Packaging Traffic Generator from {traffic_gen_dir}...\n")
         shutil.make_archive(str(zip_path_base), "zip", str(traffic_gen_dir))
 
         zip_path = Path(f"{zip_path_base}.zip")
-        bucket_name = f"{project_id}-deploy-artifacts"
         gcs_path = f"gs://{bucket_name}/traffic_generator_source.zip"
 
         f.write(f"🪣 Creating bucket {bucket_name} if needed...\n")
-        subprocess.run(["gcloud", "storage", "buckets", "create", f"gs://{bucket_name}", "--location", region], check=False, stdout=f, stderr=subprocess.STDOUT)
+        cmd_create = ["gcloud", "storage", "buckets", "create", f"gs://{bucket_name}", "--location", region]
+        if project_id:
+            cmd_create.extend(["--project", project_id])
+        subprocess.run(cmd_create, check=False, stdout=f, stderr=subprocess.STDOUT)
 
         f.write(f"📤 Uploading {zip_path} to {gcs_path}...\n")
-        run_command(["gcloud", "storage", "cp", str(zip_path), gcs_path], log_file=f)
+        cmd_cp = ["gcloud", "storage", "cp", str(zip_path), gcs_path]
+        if project_id:
+            cmd_cp.extend(["--project", project_id])
+        run_command(cmd_cp, log_file=f)
     return gcs_path
 
 
-def ensure_terraform_imports(terraform_dir, project_id, region, tf_vars, log_file=None):
+def ensure_terraform_imports(terraform_dir, project_id, region, tf_vars, bucket_name, log_file=None):
     """Checks for already existing resources and imports them into state."""
     msg = "🔍 Checking for existing resources to import into Terraform state..."
     if log_file: log_file.write(f"{msg}\n")
@@ -184,6 +193,16 @@ def ensure_terraform_imports(terraform_dir, project_id, region, tf_vars, log_fil
                 print(f"  📥 Importing {tf_name} ({res_name})...")
                 subprocess.run(["terraform", "import"] + tf_vars + [tf_name, full_id], cwd=terraform_dir, capture_output=True)
 
+    # 3. GCS Bucket
+    if "google_storage_bucket.deploy_artifacts" not in state_list:
+        check = subprocess.run(
+            ["gcloud", "storage", "buckets", "describe", f"gs://{bucket_name}", "--project", project_id],
+            capture_output=True
+        )
+        if check.returncode == 0:
+            print(f"  📥 Importing google_storage_bucket.deploy_artifacts ({bucket_name})...")
+            subprocess.run(["terraform", "import"] + tf_vars + ["google_storage_bucket.deploy_artifacts", bucket_name], cwd=terraform_dir, capture_output=True)
+
 
 def get_terraform_output(terraform_dir, output_name):
     """Reads a single output value from Terraform state."""
@@ -198,7 +217,7 @@ def get_terraform_output(terraform_dir, output_name):
     return None
 
 
-def deploy_agent_engine_task(root_dir, project_id, region, custom_domain, log_path):
+def deploy_agent_engine_task(root_dir, project_id, region, custom_domain, log_path, bucket_name):
     """Deploys Agent Engine agents. Returns dict of agent outputs from JSON file."""
     terraform_dir = root_dir / "terraform"
     psc_attachment = get_terraform_output(terraform_dir, "psc_network_attachment")
@@ -211,7 +230,7 @@ def deploy_agent_engine_task(root_dir, project_id, region, custom_domain, log_pa
             "uv", "run", "deploy-agent-engine", "--create",
             "--project_id", project_id,
             "--location", region,
-            "--bucket", f"{project_id}-deploy-artifacts",
+            "--bucket", bucket_name,
         ]
         if custom_domain:
             agent_deploy_command.extend(["--custom_domain", custom_domain])
@@ -266,6 +285,20 @@ def main():
     print(f"Logs will be written to: {logs_dir}")
 
     registry_prefix = f"gcr.io/{project_id}"
+    # Get project number to make bucket name unique and avoid name collisions
+    try:
+        result = subprocess.run(
+            ["gcloud", "projects", "describe", project_id, "--format=value(projectNumber)"],
+            capture_output=True, text=True, check=True
+        )
+        project_number = result.stdout.strip()
+    except subprocess.CalledProcessError as e:
+        print(f"❌ Error fetching project number: {e}")
+        sys.exit(1)
+
+    bucket_name = f"{project_id}-deploy-artifacts-{project_number}"
+    print(f"🪣 Using deployment artifacts bucket: {bucket_name}")
+
     components = {
         "flight-specialist": "agents/FlightSpecialist",
         "weather-specialist": "agents/WeatherSpecialist",
@@ -304,14 +337,14 @@ def main():
                 image_url = image_urls[name.replace("-", "_") + "_image"]
                 log_path = logs_dir / f"build_{name}.log"
                 build_futures.append(
-                    executor.submit(build_docker_image, name, path, image_url, root_dir, use_docker, log_path)
+                    executor.submit(build_docker_image, name, path, image_url, root_dir, use_docker, log_path, project_id)
                 )
 
             traffic_gen_dir = root_dir / "traffic_generator"
             if traffic_gen_dir.exists():
                 log_path = logs_dir / "package_traffic_generator.log"
                 build_futures.append(
-                    executor.submit(package_traffic_generator, traffic_gen_dir, root_dir / "traffic_generator_source", project_id, region, log_path)
+                    executor.submit(package_traffic_generator, traffic_gen_dir, root_dir / "traffic_generator_source", project_id, region, log_path, bucket_name)
                 )
             else:
                 image_urls["traffic_generator_source_zip"] = "gs://mock/source.zip"
@@ -343,7 +376,7 @@ def main():
 
         tf_state_bucket = env.get("TF_STATE_BUCKET", f"{project_id}-tf-state")
         run_command(
-            ["terraform", "init", "-upgrade", f"-backend-config=bucket={tf_state_bucket}"],
+            ["terraform", "init", "-upgrade", "-reconfigure", f"-backend-config=bucket={tf_state_bucket}"],
             cwd=terraform_dir
         )
 
@@ -353,15 +386,28 @@ def main():
             "-var", f"cluster_name={cluster_name}",
             "-var", f"custom_domain={custom_domain}",
             "-var", f"deploy_timestamp={datetime.now().strftime('%Y%m%dt%H%M%S')}",
+            "-var", f"deploy_bucket_name={bucket_name}",
         ]
         for key, value in image_urls.items():
             tf_vars.extend(["-var", f"{key}={value}"])
 
         # Automatically handle 'already exists' for SAs and Network Attachments
-        ensure_terraform_imports(terraform_dir, project_id, region, tf_vars)
+        ensure_terraform_imports(terraform_dir, project_id, region, tf_vars, bucket_name)
 
         print("🚀 Applying Terraform (with parallelism=20)...")
-        run_command(["terraform", "apply", "-auto-approve", "-parallelism=20"] + tf_vars, cwd=terraform_dir)
+        apphub_path = Path(terraform_dir) / "apphub.tf"
+        apphub_disabled = Path(terraform_dir) / "apphub.tf.disabled"
+        
+        if apphub_path.exists():
+            print("⏳ Temporarily disabling apphub.tf for first apply...")
+            os.rename(apphub_path, apphub_disabled)
+            
+        try:
+            run_command(["terraform", "apply", "-auto-approve", "-parallelism=20"] + tf_vars, cwd=terraform_dir)
+        finally:
+            if apphub_disabled.exists():
+                print("🔄 Restoring apphub.tf...")
+                os.rename(apphub_disabled, apphub_path)
 
         # Read and display service URLs from Terraform outputs
         service_url_names = ["flight_specialist_url", "weather_specialist_url", "profile_mcp_url",
@@ -398,7 +444,7 @@ def main():
         print("\n[Phase 3] Deploying Agent Engine...")
 
         log_path = logs_dir / "deploy_agent_engine.log"
-        agent_outputs = deploy_agent_engine_task(root_dir, project_id, region, custom_domain, log_path)
+        agent_outputs = deploy_agent_engine_task(root_dir, project_id, region, custom_domain, log_path, bucket_name)
 
         # The Agent Engine resource names can be used to construct the HTTP endpoint URLs
         # Format: projects/{project}/locations/{location}/reasoningEngines/{id}
@@ -440,6 +486,7 @@ def main():
                 "-var", f"cluster_name={cluster_name}",
                 "-var", f"custom_domain={custom_domain}",
                 "-var", f"deploy_timestamp={datetime.now().strftime('%Y%m%dt%H%M%S')}",
+                "-var", f"deploy_bucket_name={bucket_name}",
             ]
             for key, value in image_urls.items():
                 tf_vars.extend(["-var", f"{key}={value}"])

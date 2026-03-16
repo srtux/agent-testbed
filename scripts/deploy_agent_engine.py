@@ -4,6 +4,7 @@ import os
 import sys
 import shutil
 import concurrent.futures
+from concurrent.futures import ProcessPoolExecutor
 import json
 import yaml
 
@@ -12,6 +13,21 @@ project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
 
 import vertexai
+import google.cloud.storage
+from google.oauth2.credentials import Credentials
+
+# Monkeypatch google.cloud.storage.Client to inject access token if available
+# This fixes the issue where Vertex AI SDK uploads to GCS using a client that falls back to ADC
+original_storage_client = google.cloud.storage.Client
+
+def custom_storage_client(*args, **kwargs):
+    if 'credentials' not in kwargs:
+        token = os.getenv("GOOGLE_OAUTH_ACCESS_TOKEN")
+        if token:
+            kwargs['credentials'] = Credentials(token)
+    return original_storage_client(*args, **kwargs)
+
+google.cloud.storage.Client = custom_storage_client
 from absl import app, flags
 from dotenv import load_dotenv
 from vertexai import agent_engines
@@ -49,7 +65,7 @@ def manual_find_packages(base_dir):
     return packages
 
 
-def create_agent(config, custom_domain, service_urls=None, existing_agents_lookup=None, psc_network_attachment=None, vpc_project_id=None, vpc_name=None) -> None:
+def create_agent(config, custom_domain, project_id, location, bucket, service_urls=None, existing_agents_lookup=None, psc_network_attachment=None, vpc_project_id=None, vpc_name=None) -> None:
     """Creates an agent engine for the given agent."""
     import importlib.util
     import cloudpickle
@@ -76,6 +92,18 @@ def create_agent(config, custom_domain, service_urls=None, existing_agents_looku
     import testbed_utils.telemetry
     cloudpickle.register_pickle_by_value(testbed_utils.telemetry)
     
+    import vertexai
+    from google.oauth2.credentials import Credentials
+    token = os.getenv("GOOGLE_OAUTH_ACCESS_TOKEN")
+    credentials = Credentials(token) if token else None
+
+    vertexai.init(
+        project=project_id,
+        location=location,
+        staging_bucket=f"gs://{bucket}",
+        credentials=credentials,
+    )
+
     agent_obj = agent_module.agent
 
     adk_app = AdkApp(agent=agent_obj)
@@ -130,6 +158,17 @@ def create_agent(config, custom_domain, service_urls=None, existing_agents_looku
     else:
         print(f"  Warning: No custom_domain or service_urls provided for {agent_obj.name}")
 
+    # Build URL Audience Map for OIDC hook mapped back-channels
+    import json
+    audience_map = {}
+    if service_urls:
+        if service_urls.get('flight_specialist_url') and service_urls.get('flight_specialist_audience'):
+            audience_map[service_urls['flight_specialist_url']] = service_urls['flight_specialist_audience']
+        if service_urls.get('weather_specialist_url') and service_urls.get('weather_specialist_audience'):
+            audience_map[service_urls['weather_specialist_url']] = service_urls['weather_specialist_audience']
+        if service_urls.get('profile_mcp_url') and service_urls.get('profile_mcp_audience'):
+            audience_map[service_urls['profile_mcp_url']] = service_urls['profile_mcp_audience']
+
     env_vars = {
         "GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY": "true",
         "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT": "true",
@@ -139,6 +178,7 @@ def create_agent(config, custom_domain, service_urls=None, existing_agents_looku
         "LOG_LEVEL": "INFO",
         "RUNNING_IN_AGENT_ENGINE": "true",
         "PYTHONPATH": "/code:/code/site-packages:/code/.venv/lib/python3.12/site-packages:.",
+        "URL_AUDIENCE_MAP": json.dumps(audience_map),
         **urls,
     }
 
@@ -148,17 +188,24 @@ def create_agent(config, custom_domain, service_urls=None, existing_agents_looku
         if not vpc_project_id or not vpc_name:
             print("  Warning: psc_network_attachment provided but vpc_project_id or vpc_name is missing. Skipping PSC config.")
         else:
+            # Support reading comma-separated domains from environment
+            dns_domains_str = os.environ.get("PSC_DNS_DOMAINS", "run.app.")
+            dns_domains = [d.strip() for d in dns_domains_str.split(",") if d.strip()]
+            
+            dns_peering_configs = []
+            for domain in dns_domains:
+                dns_peering_configs.append({
+                    "domain": domain,
+                    "target_project": vpc_project_id,
+                    "target_network": vpc_name,
+                })
+                
             psc_interface_config = {
                 "network_attachment": psc_network_attachment,
-                "dns_peering_configs": [
-                    {
-                        "domain": "run.app.",  # Use dot for FQDN
-                        "target_project": vpc_project_id,
-                        "target_network": vpc_name,
-                    },
-                ],
+                "dns_peering_configs": dns_peering_configs,
             }
             print(f"  Configuring Agent with PSC interface attached to {psc_network_attachment}")
+            print(f"  DNS Peering Domains: {', '.join(dns_domains)}")
 
     print(f"🤖 Deploying {agent_obj.name}...")
     resource_name = None
@@ -186,12 +233,23 @@ def create_agent(config, custom_domain, service_urls=None, existing_agents_looku
         print(f"✅ Deployed remote agent {agent_obj.name}: {resource_name}")
     except Exception as e:
         print(f"❌ Error creating agent {agent_obj.name}: {e}")
+        print("  Attempting to recover resource name via list()...")
+        import time
+        time.sleep(5)
+        try:
+            remote_agents = agent_engines.AgentEngine.list()
+            for agent in remote_agents:
+                if agent.display_name == agent_obj.name:
+                    print(f"  ✅ Recovered resource name for {agent_obj.name}: {agent.resource_name}")
+                    return agent.resource_name
+        except Exception as list_e:
+            print(f"  Failed to list agents during recovery: {list_e}")
         raise e
     print()
     return resource_name
 
 
-def create(custom_domain, service_urls=None, psc_network_attachment=None, vpc_project_id=None, vpc_name=None) -> dict:
+def create(custom_domain, project_id, location, bucket, service_urls=None, psc_network_attachment=None, vpc_project_id=None, vpc_name=None) -> dict:
     """Deploy all configured ADK agents in parallel. Returns dict of agent_name -> resource_name."""
     agent_configs = [
         {"name": "RootRouter", "dir": "agents/RootRouter"},
@@ -220,17 +278,14 @@ def create(custom_domain, service_urls=None, psc_network_attachment=None, vpc_pr
 
     results = {}
 
-    print(f"🚀 Deploying {len(agent_configs)} agents in parallel...")
-    with concurrent.futures.ThreadPoolExecutor(max_workers=len(agent_configs)) as executor:
-        futures = {executor.submit(create_agent, config, custom_domain, service_urls, existing_agents_lookup, psc_network_attachment, vpc_project_id, vpc_name): config for config in agent_configs}
-        for future in concurrent.futures.as_completed(futures):
-            config = futures[future]
-            try:
-                resource_name = future.result()
-                if resource_name:
-                    results[config["name"]] = resource_name
-            except Exception as e:
-                print(f"❌ Error deploying {config['name']}: {e}")
+    print(f"🚀 Deploying {len(agent_configs)} agents sequentially...")
+    for config in agent_configs:
+        try:
+            resource_name = create_agent(config, custom_domain, project_id, location, bucket, service_urls, existing_agents_lookup, psc_network_attachment, vpc_project_id, vpc_name)
+            results[config["name"]] = resource_name
+            print(f"✅ Deployed remote agent {config['name']}: {resource_name}")
+        except Exception as e:
+            print(f"❌ Error deploying {config['name']}: {e}")
 
 
     # Write results to a JSON file for the deploy orchestrator to consume
@@ -329,16 +384,21 @@ def _main(argv: list[str] | None = None) -> None:
             service_urls = json.load(f)
         print(f"Loaded service URLs from {service_urls_path}")
 
+    from google.oauth2.credentials import Credentials
+    token = os.getenv("GOOGLE_OAUTH_ACCESS_TOKEN")
+    credentials = Credentials(token) if token else None
+
     vertexai.init(
         project=project_id,
         location=location,
         staging_bucket=f"gs://{bucket}",
+        credentials=credentials,
     )
 
     if FLAGS.list:
         list_agents()
     elif FLAGS.create:
-        create(custom_domain, service_urls, psc_network_attachment, vpc_project_id, vpc_name)
+        create(custom_domain, project_id, location, bucket, service_urls, psc_network_attachment, vpc_project_id, vpc_name)
     elif FLAGS.delete:
         if not FLAGS.resource_id:
             print("resource_id is required for delete")
@@ -346,7 +406,7 @@ def _main(argv: list[str] | None = None) -> None:
         delete(FLAGS.resource_id)
     else:
         print("No command flag provided. Defaulting to --create.")
-        create(custom_domain, service_urls, psc_network_attachment, vpc_project_id, vpc_name)
+        create(custom_domain, project_id, location, bucket, service_urls, psc_network_attachment, vpc_project_id, vpc_name)
 
 def main():
     app.run(_main)

@@ -85,6 +85,11 @@ agent = LlmAgent(
     model=DEFAULT_PRO_MODEL,
     description="Primary travel concierge agent. Authenticates and dispatches traffic.",
     static_instruction=ROOT_ROUTER_INSTRUCTION,
-    sub_agents=[intent_classifier, inspiration_agent, planning_agent],
-    tools=[fetch_profile, extract_travel_intent]
+    tools=[
+        fetch_profile,
+        extract_travel_intent,
+        AgentTool(agent=intent_classifier),
+        AgentTool(agent=inspiration_agent),
+        AgentTool(agent=planning_agent)
+    ]
 )

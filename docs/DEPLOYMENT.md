@@ -246,20 +246,53 @@ TrafficGenerator -> RootRouter (Agent Engine)
                     └─> Inventory_MCP (GKE) [MCP/SSE]
 ```
 
+## 🛠️ Deployment Automation Scripts
+
+The orchestrator leverages specialized Python scripts to bridge setup triggers and cross-service dependencies efficiently.
+
+### 1. `scripts/deploy.py` (Orchestrator Runner)
+Triggered via `uv run deploy`, this script coordinates the multi-phase deployment using concurrent threaded loops.
+
+*   **Phase 1: Concurrent Builds**
+    *   Forks separate threads to build Docker images for all 6 microservices in parallel.
+    *   Leverages standard `docker` locally, falling back to `gcloud builds submit` if daemon is unreachable.
+    *   Packages the `TrafficGenerator` into a ZIP archive and uploads to GCS trigger nodes.
+*   **Phase 2: Hybrid Infrastructure Setup**
+    *   Runs `ensure_terraform_imports` to handle pre-existing Service Accounts or Network Attachments safely without destructive application collisions.
+    *   Applies Terraform configurations accurately with parallel apply filters set to `20` speed limits.
+    *   Temporarily disables `apphub.tf` during first apply triggers to manage circular bindings carefully.
+    *   Dumps state bound coordinates into local JSON caches (`terraform_service_urls.json`).
+*   **Phase 3: Agent Engine Push**
+    *   Invokes `deploy_agent_engine.py` injecting computed endpoint coordinates to setup downstream routing safely.
+*   **Phase 4: State Realignment**
+    *   Applies a final overload Terraform apply forcing static binds addressing downstream endpoints accurately.
+*   **Phase 5: Health Check sequence**
+    *   Pings `/health` endpoints sequentially asserting full service availability.
+
+### 2. `scripts/deploy_agent_engine.py` (ADK Packager)
+Handles packaging and deploying ADK configurations directly.
+*   **Pickle Standalone Resolution**: Forces **Pickle-by-Value** explicitly using `cloudpickle.register_pickle_by_value()` on agent packs + nested submodules (e.g., `testbed_utils`) avoiding remote `ModuleNotFoundError` crashes.
+*   **VPC Egress (PSC-I Path)**: Wraps routing position setups supporting `psc_interface_config` edge buffers injecting conditional internal `*.run.app` lookup overrides traversing meshes completely inside backchannels securely.
+
+---
+
 ## Terraform Structure
 
 | File | Purpose |
 |------|---------|
-| `main.tf` | Provider config, GCS backend, GKE data source |
-| `variables.tf` | All input variables |
-| `locals.tf` | Computed service URLs (adapts to deployment mode) |
-| `cloud_run.tf` | 3 Cloud Run services |
-| `gke.tf` | 3 GKE deployments + services + KSA |
-| `networking.tf` | LBs, NEGs, SSL certs, Ingress (conditional on custom_domain) |
-| `iam.tf` | Service accounts, per-service IAM bindings, Workload Identity |
-| `functions.tf` | Traffic generator Cloud Function |
-| `outputs.tf` | Service URLs, LB IPs, deployment mode |
-| `vertex_agents.tf` | Notes on Agent Engine deployment approach |
+| `main.tf` | Provider configurations, GCS backend setups, and static data anchors. |
+| `variables.tf` | Definitions for inputs (timestamps, region, domain filters). |
+| `locals.tf` | Dynamic resolver resolving coordinate routing based on Direct vs Custom Domain binds. |
+| `cloud_run.tf` | Cloud Run containers serving specialists transparently. |
+| `gke.tf` | Heavier workloads configured transparently allocation cluster setup position bounds accurately. |
+| `networking.tf` | Setup NEGs, Load Balancers, and Ingress setups supporting HTTPS gateways. |
+| `network_attachments.tf` | Subnetwork edge buffers allocated supporting reasoning engine psc interface egress. |
+| `bastion.tf` | Setup Bastion host routing tunnel bindings via IAP securely. |
+| `apphub.tf` | Expose binds grouping endpoints cohesive triggers grouped strictly. |
+| `iam.tf` | Service accounts triggers making Workload Identity locks strictly. |
+| `functions.tf` | Cloud Run backing traffic generators transparently correctly. |
+| `outputs.tf` | Computes mapped routes positionally addressed back bridges accurately. |
+
 
 ## 🌐 Infrastructure & Networking Deep Dive
 
@@ -294,7 +327,14 @@ For environments with strict organizational policies blocking external endpoints
 
 *   **To/From Agent Engine (Reasoning Engine):** 
     -   **Egress Path:** Uses **Private Service Connect interfaces (PSC-I)** (passed during `create` via `psc_interface_config` parameters updated in `deploy_agent_engine.py`). Resolves standard `*.run.app` internally over your Internal PSC Google API Endpoint router natively.
+    
+    > [!TIP]
+    > **Dedicated Subnetwork Allocation**: To avoid routing conflicts, anchor the `network_attachment` to a **dedicated subnetwork** (e.g., `/terraform/network_attachments.tf` allocates `reasoning-engine-psc-subnet` at `10.130.0.0/24`) rather than reuse standard node pools or `default` subnets holding destination load balancers.
+
     -   **Ingress Path:** Called using standard Google API authentication over **Private Google Access** points inside your VPC subnet. Traversal is purely inside the Google backbone securely.
+
+    > [!NOTE]
+    > **Dynamic DNS Scoped Peering**: `deploy_agent_engine.py` supports the `PSC_DNS_DOMAINS` environment variable (comma-separated). You can override the default `"run.app."` lookup targets dynamically to match custom internal structures safely (e.g., `mcp.internal.`).
 
 *   **From Cloud Run Egress:**
     Configured with optional **Direct VPC Egress** in `cloud_run.tf` (maps `ALL_TRAFFIC` egress to your subnet if `var.vpc_subnetwork` is specified).
@@ -409,19 +449,7 @@ Within AppHub, components are split across:
 ### 2. Management (Terraform)
 To maintain declarative reproducibility, resource registration can be managed seamlessly combining your endpoints via `@google-beta` **discovered metadata lookups**:
 
-See `/terraform/apphub.tf` for uncommented usage:
-```hcl
-data "google_apphub_discovered_service" "weather_specialist" {
-  location    = "us-central1"
-  service_uri = "//run.googleapis.com/projects/${var.project_id}/locations/${var.region}/services/weather-specialist"
-}
+See `/terraform/apphub.tf` for uncommented usage.
 
-resource "google_apphub_service" "weather_specialist" {
-   application_id      = "testbed-app1"
-   location            = "global"
-   service_id          = "weather-specialist"
-   discovered_service   = data.google_apphub_discovered_service.weather_specialist.name
-}
-```
-If you integrate manual creates later back into Terraform apply cycles, run `terraform import` corresponding nodes strictly to prevent creation item duplicate collisions.
+For a comprehensive list of registered components and verification guides, refer to **[docs/APPHUB.md](APPHUB.md)**.
 

@@ -2,6 +2,33 @@
 
 This repository contains a testbed for a distributed AI architecture using the Google Agent Development Kit (ADK), Model Context Protocol (MCP), and OpenTelemetry. The testbed demonstrates cross-environment tracing across Agent Engine, Cloud Run, and Google Kubernetes Engine (GKE) deployments.
 
+## 📚 Documentation Index
+
+For detailed guides answering specific setups, refer to the following manuals:
+
+| Guide | Description |
+| :--- | :--- |
+| **[Architecture & Design](docs/ARCHITECTURE.md)** | Overall application topology, Specialist call graphs, and mesh protocols. |
+| **[Networking & VPC Mesh](docs/NETWORKING.md)** | Details on Load Balancers, Private Service Connect (PSC), and backchannels setups. |
+| **[Deployment Guide](docs/DEPLOYMENT.md)** | Multi-phase script automation pipelines and Terraform coordinate bridges. |
+| **[Testing & Validation](docs/TESTING.md)** | Procedures running local-all testrunners or remote Reasoning Engine suites. |
+| **[Telemetry & Tracing](docs/TELEMETRY.md)** | Framework context hooks governing distributed tracing across mesh edges. |
+| **[ADK Instrumentation Guide](docs/ADK_INSTRUMENTATION.md)** | Critical setup differences between Agent Engine vs Cloud Run / GKE runtimes. |
+| **[Agent-to-Agent (A2A)](docs/A2A.md)** | Outbound HTTP triggers setups including OIDC transparent auth layers. |
+| **[Model Context Protocol (MCP)](docs/MCP.md)** | Generic `_meta` trace propagation hooks crossing multiplexed SSE triggers. |
+| **[Developer Expansion Guide](docs/DEVELOPMENT_GUIDE.md)** | Cookbook recipes explaining how to add new agents/tools following compliant patterns. |
+| **[Load & Traffic Generator](docs/TRAFFIC_GENERATOR.md)** | Simulating continuous 2-turn conversations triggering full cascades. |
+
+| **[App Hub Setup](docs/APPHUB.md)** | Google Cloud App Hub registration and verification guide. |
+| **[Bastion Tunneling](docs/TUNNELING.md)** | Diagnostic mechanics establishing secure IAP tunnels for local endpoints lookup. |
+
+
+
+
+
+---
+
+
 ## System Architecture
 
 The application is structured into orchestration agents, specialist sub-agents, and resource servers:

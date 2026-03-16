@@ -54,7 +54,10 @@ def main():
                     subprocess.run(["kill", "-9", pid.strip()], capture_output=True)
             
             env = os.environ.copy()
+            # Override to false locally so setup_telemetry() initializes a provider
+            env["GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY"] = "false"
             # Uvicorn reads .env natively if python-dotenv is installed, 
+
             # but we'll also rely on the CLI --env-file if needed, but uvicorn handles it.
             
             p = subprocess.Popen(

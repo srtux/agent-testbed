@@ -1,5 +1,17 @@
 from testbed_utils.telemetry import setup_authenticated_transport
+from testbed_utils.logging import setup_logging
+import os
+
 setup_authenticated_transport()
+
+# Agent Engine platform handles telemetry in production.
+# For local dev / verification, we initialize it manually if not explicitly disabled/enabled by platform.
+if os.environ.get("GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY", "false").lower() != "true":
+    from testbed_utils.telemetry import setup_telemetry
+    setup_telemetry()
+
+logger = setup_logging()
+
 
 import sys
 import os
@@ -18,13 +30,13 @@ if current_dir not in sys.path:
 from booking_orchestrator.agent import agent
 
 from google.adk.runners import InMemoryRunner
-
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
 runner = InMemoryRunner(agent=agent)
 runner.auto_create_session = True
 app = FastAPI()
+FastAPIInstrumentor.instrument_app(app)
+
 
 class OrchestrationRequest(BaseModel):
     user_id: str

@@ -1,3 +1,8 @@
+variable "deploy_bucket_name" {
+  type        = string
+  description = "The unique GCS bucket name for deployment artifacts"
+}
+
 variable "project_id" {
   type        = string
   description = "The GCP Project ID"

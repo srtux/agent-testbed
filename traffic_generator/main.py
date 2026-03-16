@@ -43,56 +43,104 @@ tracer = trace.get_tracer(__name__)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-PROMPTS = [
-    "I want to go on a vacation to Tokyo.",
-    "I need to book a travel to London.",
-    "I am planning a trip to Paris."
+EXPLORER_CATEGORIES = [
+    "beach destinations",
+    "historical cities",
+    "nature and hiking places"
 ]
+
+DESTINATIONS = {
+    "beach destinations": ["Bali", "Maldives", "Hawaii", "Cancun"],
+    "historical cities": ["Rome", "Athens", "Cairo", "Kyoto"],
+    "nature and hiking places": ["Swiss Alps", "Patagonia", "Banff", "Yosemite"]
+}
+
+DECIDED_DESTINATIONS = ["Tokyo", "London", "Paris", "New York", "Sydney", "Rio de Janeiro", "Cape Town"]
+
+AIRPORTS = ["SFO", "JFK", "LAX", "LHR", "HND"]
+HOTEL_PREFERENCES = ["luxury", "budget", "family-friendly", "boutique", "standard"]
+CAR_TYPES = ["SUV", "sedan", "compact", "convertible", "luxury car"]
 
 def generate_traffic(request: Request):
     """Cloud Function entry point triggered by Cloud Scheduler."""
     
     with tracer.start_as_current_span("traffic_generator.trigger_waterfall") as span:
-        prompt = random.choice(PROMPTS)
         user_id = f"user_{random.randint(1000, 9999)}"
         member_id = "M-12345"
         
-        logger.info(f"Initiating 2-step flow for {user_id}")
-        span.set_attribute("gen_ai.prompt.initial", prompt)
+        # 50/50 Chance between Explorer and Decided
+        scenario = "explorer" if random.random() < 0.5 else "decided"
+        logger.info(f"Initiating {scenario} flow for {user_id}")
+        span.set_attribute("gen_ai.scenario", scenario)
         
         ae1_url = os.environ.get("ROOT_ROUTER_URL")
         if not ae1_url:
             logger.error("ROOT_ROUTER_URL environment variable is not set.")
             return json.dumps({"status": "error", "message": "ROOT_ROUTER_URL not configured"}), 500, {'Content-Type': 'application/json'}
 
-        # --- Step 1: Initial Intent ---
-        payload_1 = {"user_id": user_id, "prompt": prompt}
         try:
-            logger.info("Sending Turn 1: Initial Intent")
-            res_1 = requests.post(ae1_url, json=payload_1, timeout=300.0)
-            res_1.raise_for_status()
-            res_1_data = res_1.json()
+            responses = []
+            session_id = None
             
-            session_id = res_1_data.get("session_id")
-            logger.info(f"Turn 1 response received. session_id={session_id}")
+            # --- Setup Scenario Prompts Chain ---
+            prompts_chain = []
+            destination = None
+            
+            if scenario == "explorer":
+                category = random.choice(EXPLORER_CATEGORIES)
+                destination = random.choice(DESTINATIONS[category])
+                airport = random.choice(AIRPORTS)
+                
+                prompts_chain = [
+                    f"I don't know where to go. Suggest some {category}.",
+                    f"My member ID is {member_id}", # satisfies Auth Gate
+                    f"Let's go with {destination}!",
+                    f"Show me nice {random.choice(HOTEL_PREFERENCES)} hotels near downtown there.",
+                    f"Look up roundtrip flights from {airport}.",
+                    f"I will also need a {random.choice(CAR_TYPES)}.",
+                    f"What sightseeing placed do you recommend in {destination}?"
+                ]
+            else: # decided
+                destination = random.choice(DECIDED_DESTINATIONS)
+                airport = random.choice(AIRPORTS)
+                
+                prompts_chain = [
+                    f"I want to book a trip to {destination}.",
+                    f"My member ID is {member_id}", # satisfies Auth Gate
+                    f"Find roundtrip flights from {airport}.",
+                    f"Show me {random.choice(HOTEL_PREFERENCES)} hotels that have a pool.",
+                    f"Add a {random.choice(CAR_TYPES)} to my booking details."
+                ]
 
-            # --- Step 2: Provide Member ID (Auth Gate) ---
-            if session_id:
-                 payload_2 = {
-                     "user_id": user_id, 
-                     "prompt": f"My member ID is {member_id}", 
-                     "session_id": session_id
-                 }
-                 logger.info("Sending Turn 2: Providing Member ID")
-                 res_2 = requests.post(ae1_url, json=payload_2, timeout=300.0)
-                 res_2.raise_for_status()
-                 logger.info("2-step flow completed successfully.")
-                 return json.dumps({"status": "success", "response": res_2.json()}), 200, {'Content-Type': 'application/json'}
-            else:
-                 logger.warning("Turn 1 did not return session_id, skipping turn 2")
-                 return json.dumps({"status": "partial_success", "response": res_1_data}), 200, {'Content-Type': 'application/json'}
+            logger.info(f"Starting prompts chain with {len(prompts_chain)} turns.")
+
+            for i, prompt_text in enumerate(prompts_chain):
+                logger.info(f"Sending Turn {i+1}: {prompt_text}")
+                span.set_attribute(f"gen_ai.prompt.{i+1}", prompt_text)
+                
+                payload = {
+                    "user_id": user_id,
+                    "prompt": prompt_text
+                }
+                if session_id:
+                    payload["session_id"] = session_id
+                    
+                res = requests.post(ae1_url, json=payload, timeout=300.0)
+                res.raise_for_status()
+                res_json = res.json()
+                responses.append(res_json)
+                
+                # Capture session_id from Turn 1 response
+                if not session_id and res_json.get("session_id"):
+                    session_id = res_json.get("session_id")
+                    logger.info(f"Session established: {session_id}")
+
+            logger.info("Multi-turn stateful flow completed successfully.")
+            return json.dumps({"status": "success", "scenario": scenario, "responses": responses}), 200, {'Content-Type': 'application/json'}
 
         except Exception as e:
+
+
             logger.error(f"Trace execution failed: {e}")
             span.record_exception(e)
             return json.dumps({"status": "error", "message": str(e)}), 500, {'Content-Type': 'application/json'}

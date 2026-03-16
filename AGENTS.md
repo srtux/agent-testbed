@@ -98,6 +98,7 @@ The `_create_authenticated_exporter()` function reads this env var to decide whe
   ```
 - The MCP server extracts this from the meta object to continue the trace
 
+
 ### OIDC Authentication for Cloud Run
 - Cross-service calls to Cloud Run require OIDC token injection
 - Implemented via `request_hook` callbacks on both `RequestsInstrumentor` and `HTTPXClientInstrumentor`

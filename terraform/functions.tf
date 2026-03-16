@@ -9,7 +9,7 @@ resource "google_cloudfunctions2_function" "traffic_generator" {
     entry_point = "generate_traffic"
     source {
       storage_source {
-        bucket = "${var.project_id}-deploy-artifacts"
+        bucket = var.deploy_bucket_name
         object = var.traffic_generator_source_zip
       }
     }
@@ -28,4 +28,10 @@ resource "google_cloudfunctions2_function" "traffic_generator" {
       ROOT_ROUTER_URL = var.root_router_url
     }
   }
+
+  depends_on = [
+    google_storage_bucket_iam_member.gcf_admin_storage_viewer,
+    google_storage_bucket_iam_member.cloudbuild_storage_viewer
+  ]
 }
+

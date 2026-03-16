@@ -1,11 +1,16 @@
 # --- AppHub Application Setup ---
 # Manages the overall Application structure and incorporates your items.
 
-# 1. Look up the host AppHub Application
-data "google_apphub_application" "main" {
+# 1. Create or Manage the host AppHub Application
+resource "google_apphub_application" "main" {
+  location       = var.region
   application_id = "testbed-app1"
-  location       = "global"
   project        = var.project_id
+  display_name   = "Testbed Application"
+
+  scope {
+    type = "REGIONAL"
+  }
 }
 
 # --- Cloud Run Services ---
@@ -17,8 +22,8 @@ data "google_apphub_discovered_service" "weather_specialist" {
 }
 
 resource "google_apphub_service" "weather_specialist" {
-  application_id      = data.google_apphub_application.main.application_id
-  location            = "global"
+  application_id      = google_apphub_application.main.application_id
+  location            = var.region
   service_id          = "weather-specialist"
   discovered_service   = data.google_apphub_discovered_service.weather_specialist.name
   display_name        = "WeatherSpecialist"
@@ -31,8 +36,8 @@ data "google_apphub_discovered_service" "flight_specialist" {
 }
 
 resource "google_apphub_service" "flight_specialist" {
-  application_id      = data.google_apphub_application.main.application_id
-  location            = "global"
+  application_id      = google_apphub_application.main.application_id
+  location            = var.region
   service_id          = "flight-specialist"
   discovered_service   = data.google_apphub_discovered_service.flight_specialist.name
   display_name        = "FlightSpecialist"
@@ -45,8 +50,8 @@ data "google_apphub_discovered_service" "profile_mcp" {
 }
 
 resource "google_apphub_service" "profile_mcp" {
-  application_id      = data.google_apphub_application.main.application_id
-  location            = "global"
+  application_id      = google_apphub_application.main.application_id
+  location            = var.region
   service_id          = "profile-mcp"
   discovered_service   = data.google_apphub_discovered_service.profile_mcp.name
   display_name        = "ProfileMCP"
@@ -61,8 +66,8 @@ data "google_apphub_discovered_service" "gke_hotel_specialist" {
 }
 
 resource "google_apphub_service" "gke_hotel_specialist" {
-  application_id      = data.google_apphub_application.main.application_id
-  location            = "global"
+  application_id      = google_apphub_application.main.application_id
+  location            = var.region
   service_id          = "gke-hotel-specialist"
   discovered_service   = data.google_apphub_discovered_service.gke_hotel_specialist.name
   display_name        = "GkeHotelSpecialist"
@@ -75,8 +80,8 @@ data "google_apphub_discovered_service" "gke_car_rental" {
 }
 
 resource "google_apphub_service" "gke_car_rental" {
-  application_id      = data.google_apphub_application.main.application_id
-  location            = "global"
+  application_id      = google_apphub_application.main.application_id
+  location            = var.region
   service_id          = "gke-car-rental"
   discovered_service   = data.google_apphub_discovered_service.gke_car_rental.name
   display_name        = "GkeCarRental"
@@ -89,8 +94,8 @@ data "google_apphub_discovered_service" "gke_inventory_mcp" {
 }
 
 resource "google_apphub_service" "gke_inventory_mcp" {
-  application_id      = data.google_apphub_application.main.application_id
-  location            = "global"
+  application_id      = google_apphub_application.main.application_id
+  location            = var.region
   service_id          = "gke-inventory-mcp"
   discovered_service   = data.google_apphub_discovered_service.gke_inventory_mcp.name
   display_name        = "GkeInventoryMCP"
@@ -105,8 +110,8 @@ data "google_apphub_discovered_workload" "gke_hotel_specialist" {
 }
 
 resource "google_apphub_workload" "gke_hotel_specialist" {
-  application_id      = data.google_apphub_application.main.application_id
-  location            = "global"
+  application_id      = google_apphub_application.main.application_id
+  location            = var.region
   workload_id         = "gke-hotel-specialist"
   discovered_workload  = data.google_apphub_discovered_workload.gke_hotel_specialist.name
   display_name        = "HotelSpecialistPod"
@@ -119,8 +124,8 @@ data "google_apphub_discovered_workload" "gke_car_rental" {
 }
 
 resource "google_apphub_workload" "gke_car_rental" {
-  application_id      = data.google_apphub_application.main.application_id
-  location            = "global"
+  application_id      = google_apphub_application.main.application_id
+  location            = var.region
   workload_id         = "gke-car-rental"
   discovered_workload  = data.google_apphub_discovered_workload.gke_car_rental.name
   display_name        = "CarRentalPod"
@@ -133,8 +138,8 @@ data "google_apphub_discovered_workload" "gke_inventory_mcp" {
 }
 
 resource "google_apphub_workload" "gke_inventory_mcp" {
-  application_id      = data.google_apphub_application.main.application_id
-  location            = "global"
+  application_id      = google_apphub_application.main.application_id
+  location            = var.region
   workload_id         = "gke-inventory-mcp"
   discovered_workload  = data.google_apphub_discovered_workload.gke_inventory_mcp.name
   display_name        = "InventoryMcpPod"

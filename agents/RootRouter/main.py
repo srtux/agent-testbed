@@ -1,5 +1,17 @@
 from testbed_utils.telemetry import setup_authenticated_transport
+from testbed_utils.logging import setup_logging
+import os
+
 setup_authenticated_transport()
+
+# Agent Engine platform handles telemetry in production.
+# For local dev / verification, we initialize it manually if not explicitly disabled/enabled by platform.
+if os.environ.get("GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY", "false").lower() != "true":
+    from testbed_utils.telemetry import setup_telemetry
+    setup_telemetry()
+
+logger = setup_logging()
+
 
 import sys
 import os
@@ -20,7 +32,6 @@ from root_router.agent import agent
 from google.adk.runners import InMemoryRunner
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
-logger = logging.getLogger(__name__)
 
 runner = InMemoryRunner(agent=agent)
 runner.auto_create_session = True
@@ -39,6 +50,8 @@ async def health():
 @app.post("/chat")
 async def chat_endpoint(request: RouterRequest):
     logger.info(f"RootRouter received message from user {request.user_id}")
+
+
 
     # Use existing session_id if provided, else generate new
     current_session = request.session_id or str(uuid.uuid4())

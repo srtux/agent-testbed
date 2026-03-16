@@ -215,3 +215,39 @@ resource "google_project_iam_member" "vertex_service_agent_re_trace_agent" {
   member  = "serviceAccount:service-${data.google_project.current.number}@gcp-sa-aiplatform-re.iam.gserviceaccount.com"
 }
 
+resource "google_project_iam_member" "vertex_service_agent_re_network_admin" {
+  project = var.project_id
+  role    = "roles/compute.networkAdmin"
+  member  = "serviceAccount:service-${data.google_project.current.number}@gcp-sa-aiplatform-re.iam.gserviceaccount.com"
+}
+
+resource "google_project_iam_member" "vertex_service_agent_re_dns_peer" {
+  project = var.project_id
+  role    = "roles/dns.peer"
+  member  = "serviceAccount:service-${data.google_project.current.number}@gcp-sa-aiplatform-re.iam.gserviceaccount.com"
+}
+
+# --- Bucket-level permissions for Vertex AI Service Agent ---
+resource "google_project_iam_member" "vertex_service_agent_storage_viewer" {
+  project = var.project_id
+  role    = "roles/storage.objectViewer"
+  member  = "serviceAccount:service-${data.google_project.current.number}@gcp-sa-aiplatform.iam.gserviceaccount.com"
+}
+
+# --- Cloud Functions v2 Deployment Permissions ---
+# The Cloud Functions service agent needs read access to the source bucket.
+# Using bucket-level IAM as the bucket may reside in a different project.
+resource "google_storage_bucket_iam_member" "gcf_admin_storage_viewer" {
+  bucket = var.deploy_bucket_name
+  role   = "roles/storage.objectViewer"
+  member = "serviceAccount:service-${data.google_project.current.number}@gcf-admin-robot.iam.gserviceaccount.com"
+}
+
+# Cloud Functions v2 uses Cloud Build under the hood, which also needs read access to the source bucket
+resource "google_storage_bucket_iam_member" "cloudbuild_storage_viewer" {
+  bucket = var.deploy_bucket_name
+  role   = "roles/storage.objectViewer"
+  member = "serviceAccount:${data.google_project.current.number}@cloudbuild.gserviceaccount.com"
+}
+
+
