@@ -1,24 +1,25 @@
 # Model Context Protocol (MCP) Integration Guide
 
-This document describes how agents connect to **FastMCP** Context servers using Server-Sent Events (SSE) inside the **agent-testbed**.
+This document describes how agents connect to **FastMCP** servers using Server-Sent Events (SSE) inside the **agent-testbed**.
 
 ---
 
 ## 🛰️ 1. Concept: Structured Context Retrieval
 
-Unlike A2A which handles prompt delegation recursively, **MCP** allows agents to fetch static context tables (e.g., User Profiles, Inventory thresholds) using structured payloads securely.
+Unlike A2A which delegates full prompt processing to another agent, **MCP** allows agents to call structured tool endpoints (e.g., User Profiles, Inventory lookups) using typed payloads over an SSE transport.
 
-*   **Protocol**: Server-Sent Events (SSE) running over HTTP transport sockets.
+*   **Protocol**: Server-Sent Events (SSE) running over HTTP.
 
 ---
 
 ## 💻 2. Implementation Example
 
-Outbound calls utilize generic `ClientSession` streams to bridge trigger loops accurately.
+Agents use the MCP `sse_client` and `ClientSession` to connect and call tools:
 
 ```python
 from mcp.client.sse import sse_client
 from mcp.client.session import ClientSession
+from opentelemetry.propagate import inject
 import os
 
 async def fetch_profile(member_id: str) -> dict:
@@ -27,10 +28,10 @@ async def fetch_profile(member_id: str) -> dict:
     async with sse_client(mcp_url) as (read, write):
         async with ClientSession(read, write) as session:
             await session.initialize()
-            
+
             # Context Propagation setup
             meta = {}
-            inject_opentelemetry_headers(meta) 
+            inject(meta)
 
             response = await session.call_tool(
                 "get_user_preferences",
@@ -44,16 +45,18 @@ async def fetch_profile(member_id: str) -> dict:
 
 ## 🔍 3. Manual Context Propagation (Tracing)
 
-Because transport sessions multiplex streams natively, standard HTTP global Client instrumentors **cannot** cleanly bind specific tool calls to span coordinate threads comfortably.
+Because MCP uses a multiplexed SSE transport, the standard HTTP client instrumentors (e.g., `HTTPXClientInstrumentor`) **cannot** automatically attach trace context to individual tool calls.
 
-1.  **Setup Envelope**: Create dictionary `meta = {}`.
-2.  **Injection Hook**: Use OpenTelemetry propagate `inject(meta)` to pack standard W3C `traceparent` coordinates inside this bag.
-3.  **Placement**: Pass `meta=meta` inside the `.call_tool()` wrapper position triggers.
+Instead, trace context must be propagated manually:
+
+1.  **Create envelope**: `meta = {}`
+2.  **Inject trace context**: Call `inject(meta)` from `opentelemetry.propagate` to pack the W3C `traceparent` header into the dictionary.
+3.  **Pass with call**: Include `meta=meta` in the `.call_tool()` invocation.
 
 ---
 
 ## 📥 4. Server-Side Extraction
 
-On the destination listener (FastMCP socket), custom extractor nodes intercept the `.meta` dictionary envelopes prior forwarding trigger hooks into `@app.tool()` decorators backward, binding distributed context graphs appropriately securely.
+On the MCP server side (FastMCP), a custom helper extracts the `traceparent` from the `_meta` dictionary passed with each tool call. This restores the trace context so that server-side spans are correctly linked to the calling agent's trace.
 
-This explicitly maintains trace cascades flowing completely cascaded seamlessly!
+See each MCP server's `_extract_trace_context()` function for the implementation (e.g., `mcp_servers/Inventory_MCP/main.py`).

@@ -61,8 +61,6 @@ async def fetch_weather(user_id: str, location: str) -> dict:
         logger.warning(f"FastMCP mock weather failed natively due to: {e}")
         return {"condition": "Sunny", "temperature_c": 22}
 
-    return {"condition": "Sunny", "temperature_c": 22}
-
 # --- A2A HTTP Delegation Tool ---
 
 async def delegate_to_booking_orchestrator(user_id: str, itinerary_details: str) -> dict:

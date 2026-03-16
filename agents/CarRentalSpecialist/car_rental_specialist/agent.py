@@ -59,8 +59,6 @@ async def check_loyalty_status(user_id: str) -> dict:
         logger.warning(f"FastMCP call to user profile failed natively: {e}")
         return {"loyalty_tier": "Silver"}
 
-    return {"loyalty_tier": "Silver"}
-
 
 # --- Agent ---
 

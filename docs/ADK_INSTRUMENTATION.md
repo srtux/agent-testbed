@@ -56,6 +56,6 @@ FastAPIInstrumentor.instrument_app(app)
 | **Auth Setup** | `setup_authenticated_transport()` | `setup_telemetry()` |
 | **Inbound Extraction** | FastAPIInstrumentor | FastAPIInstrumentor |
 | **VPC Binding (Egress)** | Private Service Connect (PSC) | Direct VPC Egress allocated bounds |
-| **Safty Hazard** | Overwriting global TracerProvider crashes exports | Forgetting `setup_telemetry()` drops links |
+| **Safety Hazard** | Overwriting global TracerProvider crashes exports | Forgetting `setup_telemetry()` drops links |
 
 Both environments leverage identical `GoogleGenAiSdkInstrumentor` sub-envelopes under the hood, guaranteeing consistent Trace IDs distributed backwards downstream seamlessly!

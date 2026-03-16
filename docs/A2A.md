@@ -6,7 +6,7 @@ This document describes how agents communicate with other specialists or endpoin
 
 ## 🛰️ 1. Concept: Microservice Delegation
 
-In this mesh, an agent can distribute part of its reasoning process by calling another agent's REST endpoint. 
+In this mesh, an agent can distribute part of its reasoning process by calling another agent's REST endpoint.
 *   **Protocol**: Standard HTTP/JSON `POST` requests.
 *   **Edge Design**: Wraps the call inside a Python function tool available to the `LlmAgent`.
 
@@ -14,7 +14,7 @@ In this mesh, an agent can distribute part of its reasoning process by calling a
 
 ## 💻 2. Implementation Example
 
-Outbound calls leverages the standard Python `httpx` client synchronous/asynchronous triggers:
+Outbound calls use the standard Python `httpx` async client:
 
 ```python
 import httpx
@@ -38,28 +38,28 @@ async def call_flight_specialist(user_id: str, destination: str) -> dict:
 
 Distributed tracing is **fully automated** using OpenTelemetry hooks.
 
-1.  **Preparation**: The app-runner initializes `setup_authenticated_transport()` (from `testbed_utils.telemetry`) at app startup module-level.
-2.  **Instrumentor**: Hooks into `HTTPXClientInstrumentor` wrapping `httpx` client instantiations globally for that process cycle.
-3.  **Action**: Outbound requests automatically carry `traceparent` sub-envelopes without requiring any manual map-packing hooks backwards.
+1.  **Preparation**: The app entrypoint calls `setup_authenticated_transport()` (from `testbed_utils.telemetry`) at module level during startup.
+2.  **Instrumentor**: `HTTPXClientInstrumentor` wraps all `httpx` client instances globally for that process.
+3.  **Action**: Outbound requests automatically carry `traceparent` headers without any manual injection code.
 
 ---
 
 ## 🔒 4. Authorization (OIDC ID Tokens)
 
-Outbound calls targeting **Cloud Run** or secure Gateways require Identity verification tokens.
+Outbound calls targeting **Cloud Run** or secure Gateways require OIDC identity tokens.
 
-*   **Behind the Scenes**: `testbed_utils.telemetry` intercepts any outgoing requests addressing `.run.app` or `.cloudfunctions.net`.
-*   **Injection**: Transparently fetches a Google OIDC ID token using Application Default Credentials (ADC) and puts it inside the `Authorization: Bearer <ID_TOKEN>` header safely.
-*   **Validation**: Google-managed infrastructure validates the payload prior forwards routing transparently.
+*   **Behind the Scenes**: `testbed_utils.telemetry` intercepts outgoing requests to `.run.app` or `.cloudfunctions.net` URLs.
+*   **Injection**: Transparently fetches a Google OIDC ID token using Application Default Credentials (ADC) and attaches it as an `Authorization: Bearer <ID_TOKEN>` header.
+*   **Validation**: Google-managed infrastructure validates the token before routing the request to the target service.
 
 ---
 
 ## 📥 5. Inbound Extraction
 
-Every agent receiving an A2A trigger extracts the context seamlessly prior process:
+Every agent receiving an A2A call automatically extracts trace context from inbound requests:
 ```python
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 # Inside app creation:
 FastAPIInstrumentor.instrument_app(app)
 ```
-This forces automatic unpacked coordinate bindings back to the current local node accurately maintaining distributed links waterfall graphs perfectly.
+This instruments the FastAPI app to automatically extract `traceparent` headers from incoming requests, linking inbound spans to the distributed trace.

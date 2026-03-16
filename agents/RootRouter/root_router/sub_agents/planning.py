@@ -30,9 +30,7 @@ async def research_destination(destination: str, dates: str) -> dict:
         credentials.refresh(auth_req)
         headers = {"Authorization": f"Bearer {credentials.token}"}
 
-        import asyncio
-        connect_fut = sse_client(mcp_url, headers=headers)
-        async with asyncio.wait_for(connect_fut, timeout=10.0) as (read, write):
+        async with sse_client(mcp_url, headers=headers) as (read, write):
             async with ClientSession(read, write) as session:
                 await session.initialize()
                 meta = {}
@@ -45,13 +43,14 @@ async def research_destination(destination: str, dates: str) -> dict:
                 WHERE stn='724940'
                 ORDER BY date DESC LIMIT 5
                 """
-                # 2. Popularity Query
+                # 2. Popularity Query — escape single quotes to prevent SQL injection
+                safe_destination = destination.replace("'", "\\'")
                 wiki_sql = f"""
-                SELECT sum_views 
+                SELECT sum_views
                 FROM (
-                    SELECT SUM(views) as sum_views 
+                    SELECT SUM(views) as sum_views
                     FROM `bigquery-public-data.wikipedia.pageviews_2024`
-                    WHERE title = '{destination}'
+                    WHERE title = '{safe_destination}'
                 )
                 """
 
