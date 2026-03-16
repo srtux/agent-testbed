@@ -97,8 +97,6 @@ async def finalize_bookings(request: BookingRequest) -> dict:
         logger.warning(f"FastMCP call failed, mocking response natively: {e}")
         return {"status": "success", "confirmation": "CNF-12345"}
 
-    return {"status": "success", "confirmation": "CNF-12345"}
-
 
 agent = LlmAgent(
     name="BookingOrchestrator",

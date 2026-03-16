@@ -53,17 +53,30 @@ async def fetch_profile(member_id: str) -> dict:
             "preferences": {"seat": "aisle"}
         }
 
-    return {
-        "home_airport": "SFO",
-        "loyalty_tier": "Gold",
-        "preferences": {"seat": "aisle"}
-    }
-
 
 async def extract_travel_intent(user_input: str) -> dict:
-    """Analyzes the user's input to extract traveling fields (Destination, Dates)."""
-    # Simply delegates or returns structured keys
-    return {"destination": None, "dates": None}
+    """Analyzes the user's input to extract traveling fields (Destination, Dates).
+
+    Returns a dict with 'destination' and 'dates' keys extracted from the input.
+    The LLM calling this tool should provide the user_input verbatim so
+    downstream routing can determine inspiration vs. planning paths.
+    """
+    import re
+
+    # Simple heuristic extraction — the LLM can refine via IntentClassifier
+    destination = None
+    dates = None
+
+    # Look for date-like patterns (YYYY-MM-DD, Month Day, etc.)
+    date_pattern = re.findall(
+        r'\d{4}-\d{2}-\d{2}|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w*\s+\d{1,2}',
+        user_input, re.IGNORECASE
+    )
+    if date_pattern:
+        dates = ", ".join(date_pattern)
+
+    # Return what we found — LLM uses IntentClassifier for full classification
+    return {"destination": destination, "dates": dates, "raw_input": user_input}
 
 
 # --- Intent Classifier (Sub-Agent) ---

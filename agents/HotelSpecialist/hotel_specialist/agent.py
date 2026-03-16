@@ -53,8 +53,6 @@ async def fetch_hotel_inventory(user_id: str, destination: str, dates: str) -> d
         logger.warning(f"FastMCP call failed natively: {e}")
         return {"status": "available", "cost": 250, "hotel_name": "Cloud Suites"}
 
-    return {"status": "available", "cost": 250, "hotel_name": "Cloud Suites"}
-
 # --- A2A HTTP Delegation Tool ---
 
 async def consult_car_rental(user_id: str, dates: str, destination: str) -> dict:
