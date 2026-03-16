@@ -2486,6 +2486,7 @@ source = { virtual = "traffic_generator" }
 dependencies = [
     { name = "flask" },
     { name = "functions-framework" },
+    { name = "google-auth" },
     { name = "opentelemetry-api" },
     { name = "opentelemetry-exporter-otlp" },
     { name = "opentelemetry-instrumentation-requests" },
@@ -2497,6 +2498,7 @@ dependencies = [
 requires-dist = [
     { name = "flask" },
     { name = "functions-framework" },
+    { name = "google-auth" },
     { name = "opentelemetry-api" },
     { name = "opentelemetry-exporter-otlp" },
     { name = "opentelemetry-instrumentation-requests" },

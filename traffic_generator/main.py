@@ -3,7 +3,10 @@ import random
 import requests
 import json
 import logging
+import google.auth
+import google.auth.transport.requests
 from flask import Request
+
 
 def is_otel_initialized() -> bool:
     try:
@@ -79,8 +82,20 @@ def generate_traffic(request: Request):
             return json.dumps({"status": "error", "message": "ROOT_ROUTER_URL not configured"}), 500, {'Content-Type': 'application/json'}
 
         try:
+            # Get Google auth token for Calling Vertex AI Reasoning Engine
+            try:
+                credentials, project = google.auth.default()
+                auth_request = google.auth.transport.requests.Request()
+                credentials.refresh(auth_request)
+                auth_headers = {"Authorization": f"Bearer {credentials.token}"}
+                logger.info("Successfully acquired Google auth token")
+            except Exception as auth_e:
+                logger.error(f"Failed to acquire auth token: {auth_e}")
+                auth_headers = {}
+
             responses = []
             session_id = None
+
             
             # --- Setup Scenario Prompts Chain ---
             prompts_chain = []
@@ -125,7 +140,8 @@ def generate_traffic(request: Request):
                 if session_id:
                     payload["session_id"] = session_id
                     
-                res = requests.post(ae1_url, json=payload, timeout=300.0)
+                res = requests.post(ae1_url, json=payload, headers=auth_headers, timeout=300.0)
+
                 res.raise_for_status()
                 res_json = res.json()
                 responses.append(res_json)

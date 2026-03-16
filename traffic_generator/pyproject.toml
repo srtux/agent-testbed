@@ -10,6 +10,7 @@ dependencies = [
     "opentelemetry-sdk",
     "opentelemetry-exporter-otlp",
     "opentelemetry-instrumentation-requests",
+    "google-auth",
 ]
 
 [tool.uv]

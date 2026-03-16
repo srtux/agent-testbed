@@ -493,9 +493,12 @@ def main():
 
             tf_vars_phase4 = tf_vars.copy()
             if root_router_resource:
-                tf_vars_phase4.extend(["-var", f"root_router_url={root_router_resource}"])
+                root_router_url_full = f"https://{region}-aiplatform.googleapis.com/v1/{root_router_resource}:query"
+                tf_vars_phase4.extend(["-var", f"root_router_url={root_router_url_full}"])
             if booking_resource:
-                tf_vars_phase4.extend(["-var", f"booking_orchestrator_url={booking_resource}"])
+                booking_url_full = f"https://{region}-aiplatform.googleapis.com/v1/{booking_resource}:query"
+                tf_vars_phase4.extend(["-var", f"booking_orchestrator_url={booking_url_full}"])
+
 
             run_command(
                 ["terraform", "apply", "-auto-approve", "-parallelism=20"] + tf_vars_phase4,
