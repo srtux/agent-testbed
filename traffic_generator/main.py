@@ -84,7 +84,7 @@ def generate_traffic(request: Request):
         try:
             # Get Google auth token for Calling Vertex AI Reasoning Engine
             try:
-                credentials, project = google.auth.default()
+                credentials, project = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
                 auth_request = google.auth.transport.requests.Request()
                 credentials.refresh(auth_request)
                 auth_headers = {"Authorization": f"Bearer {credentials.token}"}
@@ -134,11 +134,13 @@ def generate_traffic(request: Request):
                 span.set_attribute(f"gen_ai.prompt.{i+1}", prompt_text)
                 
                 payload = {
-                    "user_id": user_id,
-                    "prompt": prompt_text
+                    "input": {
+                        "user_id": user_id,
+                        "prompt": prompt_text
+                    }
                 }
                 if session_id:
-                    payload["session_id"] = session_id
+                    payload["input"]["session_id"] = session_id
                     
                 res = requests.post(ae1_url, json=payload, headers=auth_headers, timeout=300.0)
 
@@ -157,6 +159,9 @@ def generate_traffic(request: Request):
         except Exception as e:
 
 
-            logger.error(f"Trace execution failed: {e}")
+            if hasattr(e, 'response') and e.response is not None:
+                logger.error(f"Trace execution failed: {e}. Body: {e.response.text}")
+            else:
+                logger.error(f"Trace execution failed: {e}")
             span.record_exception(e)
             return json.dumps({"status": "error", "message": str(e)}), 500, {'Content-Type': 'application/json'}

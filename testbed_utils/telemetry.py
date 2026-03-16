@@ -1,6 +1,9 @@
 import os
 import sys
 import time
+import logging
+
+logger = logging.getLogger(__name__)
 
 def is_otel_initialized() -> bool:
     """Checks if OpenTelemetry has already been initialized with a real provider."""
@@ -117,11 +120,14 @@ def _needs_oidc_auth(url):
         return True
         
     # Check audience map for IP/Internal URLs
-    import json
+    import ast
     try:
-        audience_map = json.loads(os.environ.get("URL_AUDIENCE_MAP", "{}"))
-        if any(url.startswith(k) for k in audience_map.keys()):
-            return True
+        map_str = os.environ.get("URL_AUDIENCE_MAP", "{}")
+        if map_str:
+            # Handle potential single-quote dict string from env
+            audience_map = ast.literal_eval(map_str)
+            if any(url.startswith(k) for k in audience_map.keys()):
+                return True
     except Exception:
         pass
         
@@ -129,9 +135,11 @@ def _needs_oidc_auth(url):
 
 def _get_audience(url):
     """Resolves the OIDC audience for a given URL."""
-    import json
+    import ast
     try:
-        audience_map = json.loads(os.environ.get("URL_AUDIENCE_MAP", "{}"))
+        map_str = os.environ.get("URL_AUDIENCE_MAP", "{}")
+        if map_str:
+            audience_map = ast.literal_eval(map_str)
         for k, v in audience_map.items():
             if url.startswith(k):
                 return v
@@ -161,11 +169,14 @@ def _setup_oidc_auth(requests_inst, httpx_inst):
         if cached and cached[1] > time.monotonic():
             return cached[0]
         try:
+            logger.info(f"Fetching OIDC token for audience: {audience}")
             auth_req = google.auth.transport.requests.Request()
             token = id_token.fetch_id_token(auth_req, audience)
             token_cache[audience] = (token, time.monotonic() + _TOKEN_TTL_SECONDS)
+            logger.info(f"Successfully fetched OIDC token for {audience}")
             return token
-        except Exception:
+        except Exception as e:
+            logger.exception(f"Failed to fetch OIDC token for {audience}")
             return None
 
     # For Requests — inject OIDC tokens via request_hook (used by traffic generator)
@@ -173,9 +184,14 @@ def _setup_oidc_auth(requests_inst, httpx_inst):
         url = request.url
         if _needs_oidc_auth(url):
             audience = _get_audience(url)
+            logger.info(f"URL {url} needs OIDC auth, audience: {audience}")
             token = get_oidc_token(audience)
             if token:
+                logger.info(f"Injecting OIDC token for {url}")
                 request.headers["Authorization"] = f"Bearer {token}"
+            else:
+                logger.warning(f"No OIDC token available for {url}")
+
 
     requests_inst.instrument(request_hook=requests_request_hook)
 
@@ -184,8 +200,12 @@ def _setup_oidc_auth(requests_inst, httpx_inst):
         url = str(request.url)
         if _needs_oidc_auth(url):
             audience = _get_audience(url)
+            logger.info(f"URL {url} needs OIDC auth, audience: {audience}")
             token = get_oidc_token(audience)
             if token:
+                logger.info(f"Injecting OIDC token for {url}")
                 request.headers["Authorization"] = f"Bearer {token}"
+            else:
+                logger.warning(f"No OIDC token available for {url}")
 
     httpx_inst.instrument(request_hook=httpx_request_hook)
