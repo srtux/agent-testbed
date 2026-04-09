@@ -17,7 +17,7 @@ variable "region" {
 variable "cluster_name" {
   type        = string
   description = "The name of the GKE cluster"
-  default     = "default-cluster"
+  default     = "cluster2"
 }
 
 variable "custom_domain" {

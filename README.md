@@ -285,9 +285,9 @@ This project uses `uv` as the primary build and dependency management tool.
    ```
 
 3. **GKE Cluster Setup**:
-   Ensure you have a GKE cluster running (default name: `default-cluster`) with Workload Identity enabled. Configure `kubectl` to point to it:
+   Ensure you have a GKE cluster running (default name: `cluster2`) with Workload Identity enabled. Configure `kubectl` to point to it:
    ```bash
-   gcloud container clusters get-credentials default-cluster --region us-central1
+   gcloud container clusters get-credentials cluster2 --region us-central1
    ```
 
 4. **Run Services Locally**:

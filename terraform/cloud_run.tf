@@ -2,6 +2,7 @@ resource "google_cloud_run_v2_service" "flight_specialist" {
   name     = "flight-specialist"
   location = var.region
   project  = var.project_id
+  deletion_protection = false
   ingress  = "INGRESS_TRAFFIC_INTERNAL_ONLY"
 
   labels = {
@@ -69,6 +70,7 @@ resource "google_cloud_run_v2_service" "weather_specialist" {
   name     = "weather-specialist"
   location = var.region
   project  = var.project_id
+  deletion_protection = false
   ingress  = "INGRESS_TRAFFIC_INTERNAL_ONLY"
 
   labels = {
@@ -136,6 +138,7 @@ resource "google_cloud_run_v2_service" "profile_mcp" {
   name     = "profile-mcp"
   location = var.region
   project  = var.project_id
+  deletion_protection = false
   ingress  = "INGRESS_TRAFFIC_INTERNAL_ONLY"
 
   labels = {

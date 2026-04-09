@@ -296,7 +296,7 @@ def main():
         print(f"❌ Error fetching project number: {e}")
         sys.exit(1)
 
-    bucket_name = f"{project_id}-deploy-artifacts-{project_number}"
+    bucket_name = f"{project_id}-deploy-artifacts-{project_number}-testbed"
     print(f"🪣 Using deployment artifacts bucket: {bucket_name}")
 
     components = {

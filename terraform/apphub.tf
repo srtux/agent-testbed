@@ -16,7 +16,7 @@ resource "google_apphub_application" "main" {
 # --- Cloud Run Services ---
 
 data "google_apphub_discovered_service" "weather_specialist" {
-  location = "global"
+  location = var.region
   service_uri = "//run.googleapis.com/projects/${var.project_id}/locations/${var.region}/services/weather-specialist"
   project     = var.project_id
 }
@@ -30,7 +30,7 @@ resource "google_apphub_service" "weather_specialist" {
 }
 
 data "google_apphub_discovered_service" "flight_specialist" {
-  location = "global"
+  location = var.region
   service_uri = "//run.googleapis.com/projects/${var.project_id}/locations/${var.region}/services/flight-specialist"
   project     = var.project_id
 }
@@ -44,7 +44,7 @@ resource "google_apphub_service" "flight_specialist" {
 }
 
 data "google_apphub_discovered_service" "profile_mcp" {
-  location = "global"
+  location = var.region
   service_uri = "//run.googleapis.com/projects/${var.project_id}/locations/${var.region}/services/profile-mcp"
   project     = var.project_id
 }
@@ -60,7 +60,7 @@ resource "google_apphub_service" "profile_mcp" {
 # --- GKE Services ---
 
 data "google_apphub_discovered_service" "gke_hotel_specialist" {
-  location = "global"
+  location = var.region
   service_uri = "//container.googleapis.com/projects/${var.project_id}/locations/${var.region}/clusters/${var.cluster_name}/k8s/namespaces/default/services/gke-hotel-specialist-service"
   project     = var.project_id
 }
@@ -74,7 +74,7 @@ resource "google_apphub_service" "gke_hotel_specialist" {
 }
 
 data "google_apphub_discovered_service" "gke_car_rental" {
-  location = "global"
+  location = var.region
   service_uri = "//container.googleapis.com/projects/${var.project_id}/locations/${var.region}/clusters/${var.cluster_name}/k8s/namespaces/default/services/gke-car-rental-service"
   project     = var.project_id
 }
@@ -88,7 +88,7 @@ resource "google_apphub_service" "gke_car_rental" {
 }
 
 data "google_apphub_discovered_service" "gke_inventory_mcp" {
-  location = "global"
+  location = var.region
   service_uri = "//container.googleapis.com/projects/${var.project_id}/locations/${var.region}/clusters/${var.cluster_name}/k8s/namespaces/default/services/gke-inventory-mcp-service"
   project     = var.project_id
 }
@@ -104,7 +104,7 @@ resource "google_apphub_service" "gke_inventory_mcp" {
 # --- GKE Workloads ---
 
 data "google_apphub_discovered_workload" "gke_hotel_specialist" {
-  location = "global"
+  location = var.region
   workload_uri = "//container.googleapis.com/projects/${var.project_id}/locations/${var.region}/clusters/${var.cluster_name}/k8s/namespaces/default/apps/deployments/gke-hotel-specialist"
   project      = var.project_id
 }
@@ -118,7 +118,7 @@ resource "google_apphub_workload" "gke_hotel_specialist" {
 }
 
 data "google_apphub_discovered_workload" "gke_car_rental" {
-  location = "global"
+  location = var.region
   workload_uri = "//container.googleapis.com/projects/${var.project_id}/locations/${var.region}/clusters/${var.cluster_name}/k8s/namespaces/default/apps/deployments/gke-car-rental"
   project      = var.project_id
 }
@@ -132,7 +132,7 @@ resource "google_apphub_workload" "gke_car_rental" {
 }
 
 data "google_apphub_discovered_workload" "gke_inventory_mcp" {
-  location = "global"
+  location = var.region
   workload_uri = "//container.googleapis.com/projects/${var.project_id}/locations/${var.region}/clusters/${var.cluster_name}/k8s/namespaces/default/apps/deployments/gke-inventory-mcp"
   project      = var.project_id
 }
@@ -152,7 +152,9 @@ resource "google_apphub_workload" "gke_inventory_mcp" {
 # variable "booking_orchestrator_numeric_id" { type = string }
 #
 # data "google_apphub_discovered_workload" "booking_orchestrator" {
-#   location = "global"
+#   location = var.region
 #   workload_uri = "//aiplatform.googleapis.com/projects/${var.project_id}/locations/${var.region}/reasoningEngines/${var.booking_orchestrator_numeric_id}"
 #   project      = var.project_id
 # }
+
+

@@ -37,8 +37,9 @@ For locked-down environments blocking external endpoints, the testbed supports f
 ### A. Agent Engine (Vertex AI) Egress
 To reach internal resources from Vertex AI, the setup utilizes **Private Service Connect interfaces (PSC-I)**.
 *   **Mechanism**: The runner allocates a dedicated IP gateway into your VPC.
-*   **Subnetting**: Anchored to a dedicated subnetwork (e.g., `10.130.0.0/24`) specifically for Reasoning Engine PSC Egress, separate from destination pool bundles to avoid collisions.
+*   **Subnetting**: Anchored to a dedicated subnetwork (e.g., `10.10.0.0/24`) specifically for Reasoning Engine PSC Egress, separate from destination pool bundles to avoid collisions.
 *   **DNS**: Dynamic DNS Scoped Peering resolves `*.run.app` inside the VPC over PGA routers natively.
+*   **Firewall Rules**: Requires a firewall rule to allow traffic from the PSC subnet (e.g., `10.10.0.0/24`) to the resources in your VPC (e.g., GKE nodes on port 8080 or LoadBalancers on port 80).
 
 ### B. Cloud Run Direct VPC Egress
 To allow Cloud Run to call internal GKE pods without leaving the backbone:

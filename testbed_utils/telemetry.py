@@ -96,6 +96,27 @@ def setup_telemetry(force_cloud_trace: bool = False):
             provider.add_span_processor(processor)
             trace.set_tracer_provider(provider)
 
+            from opentelemetry.exporter.cloud_logging import CloudLoggingExporter
+            from opentelemetry.exporter.cloud_monitoring import CloudMonitoringMetricsExporter
+            from opentelemetry.sdk._logs import LoggerProvider
+            from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
+            from opentelemetry.sdk.metrics import MeterProvider
+            from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
+            from opentelemetry import _logs as logs
+            from opentelemetry import metrics
+
+            # Set up logs
+            logger_provider = LoggerProvider(resource=provider.resource)
+            logger_provider.add_log_record_processor(
+                BatchLogRecordProcessor(CloudLoggingExporter())
+            )
+            logs.set_logger_provider(logger_provider)
+
+            # Set up metrics
+            reader = PeriodicExportingMetricReader(CloudMonitoringMetricsExporter())
+            meter_provider = MeterProvider(metric_readers=[reader], resource=provider.resource)
+            metrics.set_meter_provider(meter_provider)
+
 
 
         from opentelemetry.instrumentation.google_genai import GoogleGenAiSdkInstrumentor

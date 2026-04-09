@@ -1,6 +1,6 @@
 project_id        = "your-gcp-project-id"
 region            = "us-central1"
-cluster_name      = "default-cluster"
+cluster_name      = "cluster2"
 
 # Image References (Built and pushed to GCR/Artifact Registry)
 flight_specialist_image      = "gcr.io/your-gcp-project-id/flight-specialist:latest"

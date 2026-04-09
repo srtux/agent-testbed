@@ -329,7 +329,7 @@ For environments with strict organizational policies blocking external endpoints
     -   **Egress Path:** Uses **Private Service Connect interfaces (PSC-I)** (passed during `create` via `psc_interface_config` parameters updated in `deploy_agent_engine.py`). Resolves standard `*.run.app` internally over your Internal PSC Google API Endpoint router natively.
     
     > [!TIP]
-    > **Dedicated Subnetwork Allocation**: To avoid routing conflicts, anchor the `network_attachment` to a **dedicated subnetwork** (e.g., `/terraform/network_attachments.tf` allocates `reasoning-engine-psc-subnet` at `10.130.0.0/24`) rather than reuse standard node pools or `default` subnets holding destination load balancers.
+    > **Dedicated Subnetwork Allocation**: To avoid routing conflicts, anchor the `network_attachment` to a **dedicated subnetwork** (e.g., `/terraform/network_attachments.tf` allocates `reasoning-engine-psc-subnet` at `10.10.0.0/24`) rather than reuse standard node pools or `default` subnets holding destination load balancers.
 
     -   **Ingress Path:** Called using standard Google API authentication over **Private Google Access** points inside your VPC subnet. Traversal is purely inside the Google backbone securely.
 
@@ -429,7 +429,7 @@ kubectl logs -l app=gke-hotel-specialist
 
 **Agent Engine can't reach GKE services:**
 In custom domain mode, ensure DNS and SSL certs are fully provisioned.
-In direct mode, ensure GKE LoadBalancer IPs are accessible (check firewall rules).
+In direct mode, ensure GKE LoadBalancer IPs are accessible. **Crucially, ensure there is a firewall rule allowing traffic from the PSC subnet (e.g., `10.10.0.0/24`) to the GKE resources.**
 
 **Cloud Run 403 errors:**
 IAM bindings are per-service. Check that the calling service account has `roles/run.invoker` on the target service:
