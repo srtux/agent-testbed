@@ -12,7 +12,7 @@ COPY . .
 # Sync the project (installs all dependencies including workspace members)
 # We use --index-url to ensure we can reach PyPI if the lockfile has internal mirrors that fail in Cloud Build
 RUN uv pip install --system keyrings.google-artifactregistry-auth && \
-    rm -f uv.lock && uv sync --no-dev --no-editable --index-url https://pypi.org/simple
+    rm -f uv.lock && uv sync --no-dev --no-editable --index-url https://pypi.org/simple --prerelease=allow
 
 # Final image
 FROM python:3.12-slim-bookworm

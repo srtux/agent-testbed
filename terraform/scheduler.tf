@@ -5,7 +5,7 @@ resource "google_cloud_scheduler_job" "traffic_generator_trigger" {
   name        = "travel-traffic-trigger"
   description = "Periodically invokes the traffic generator to keep agents warm and produce traces"
   project     = var.project_id
-  region      = var.region
+  region      = "us-east1"
   schedule    = var.traffic_schedule # Default: every 5 minutes
   time_zone   = "UTC"
 

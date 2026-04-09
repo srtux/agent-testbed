@@ -61,9 +61,9 @@ output "gke_lb_ip" {
 
 # --- Other ---
 
-output "traffic_generator_url" {
-  value = google_cloudfunctions2_function.traffic_generator.url
-}
+# output "traffic_generator_url" {
+#   value = google_cloudfunctions2_function.traffic_generator.url
+# }
 
 output "test_runner_sa" {
   value       = google_service_account.test_runner.email
@@ -75,10 +75,10 @@ output "mode" {
   description = "Deployment mode: custom_domain (LBs + SSL) or direct (native URLs + LoadBalancer IPs)."
 }
 
-output "bastion_ssh_command" {
-  value       = "gcloud compute ssh ${google_compute_instance.bastion.name} --tunnel-through-iap --zone ${google_compute_instance.bastion.zone} --project ${var.project_id} -- -D 8888 -N"
-  description = "Command to establish a SOCKS5 proxy tunnel to the Bastion host."
-}
+# output "bastion_ssh_command" {
+#   value       = "gcloud compute ssh ${google_compute_instance.bastion.name} --tunnel-through-iap --zone ${google_compute_instance.bastion.zone} --project ${var.project_id} -- -D 8888 -N"
+#   description = "Command to establish a SOCKS5 proxy tunnel to the Bastion host."
+# }
 
 output "psc_network_attachment" {
   value       = google_compute_network_attachment.reasoning_engine.id

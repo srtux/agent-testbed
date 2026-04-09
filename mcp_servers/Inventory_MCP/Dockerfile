@@ -10,7 +10,7 @@ WORKDIR /app
 COPY . .
 
 # Sync the project (installs all dependencies including workspace members)
-RUN uv pip install --system keyrings.google-artifactregistry-auth && rm -f uv.lock && uv sync --no-dev --no-editable --index-url https://pypi.org/simple
+RUN uv pip install --system keyrings.google-artifactregistry-auth && rm -f uv.lock && uv sync --no-dev --no-editable --index-url https://pypi.org/simple --prerelease=allow
 
 # Final image
 FROM python:3.12-slim-bookworm

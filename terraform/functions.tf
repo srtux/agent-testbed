@@ -1,6 +1,6 @@
 resource "google_cloudfunctions2_function" "traffic_generator" {
   name        = "travel-traffic-generator"
-  location    = var.region
+  location    = "us-central1"
   description = "Simulates travel traffic for the testbed"
   project     = var.project_id
 
@@ -17,7 +17,7 @@ resource "google_cloudfunctions2_function" "traffic_generator" {
 
   service_config {
     max_instance_count = 1
-    available_memory   = "256M"
+    available_memory   = "512M"
     timeout_seconds    = 60
     ingress_settings   = "ALLOW_INTERNAL_ONLY"
 

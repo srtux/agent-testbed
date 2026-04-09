@@ -3,9 +3,13 @@ import random
 import requests
 import json
 import logging
+import uuid
 import google.auth
 import google.auth.transport.requests
 from flask import Request
+from google.cloud import aiplatform
+from vertexai.preview.reasoning_engines import ReasoningEngine
+import re
 
 
 def is_otel_initialized() -> bool:
@@ -94,7 +98,26 @@ def generate_traffic(request: Request):
                 auth_headers = {}
 
             responses = []
-            session_id = None
+            
+            # Extract engine_id from URL to create session via SDK
+            match = re.search(r"/reasoningEngines/([^:]+)", ae1_url)
+            if match:
+                engine_id = match.group(1)
+                logger.info(f"Extracted engine_id: {engine_id}")
+                
+                try:
+                    aiplatform.init(project=project, location="us-central1")
+                    engine = ReasoningEngine(engine_id)
+                    logger.info(f"Creating session for user {user_id}...")
+                    session = engine.create_session(user_id=user_id)
+                    session_id = session.get("id")
+                    logger.info(f"Successfully created session: {session_id}")
+                except Exception as e:
+                    logger.error(f"Failed to create session via SDK: {e}. Falling back to random UUID.")
+                    session_id = str(uuid.uuid4())
+            else:
+                logger.warning(f"Could not extract engine_id from URL: {ae1_url}. Falling back to random UUID.")
+                session_id = str(uuid.uuid4())
 
             
             # --- Setup Scenario Prompts Chain ---
@@ -135,23 +158,24 @@ def generate_traffic(request: Request):
                 
                 payload = {
                     "input": {
-                        "user_id": user_id,
-                        "prompt": prompt_text
+                        "message": prompt_text,
+                        "user_id": user_id
                     }
                 }
                 if session_id:
                     payload["input"]["session_id"] = session_id
                     
-                res = requests.post(ae1_url, json=payload, headers=auth_headers, timeout=300.0)
+                res = requests.post(ae1_url, json=payload, headers=auth_headers, timeout=300.0, stream=True)
 
                 res.raise_for_status()
-                res_json = res.json()
-                responses.append(res_json)
                 
-                # Capture session_id from Turn 1 response
-                if not session_id and res_json.get("session_id"):
-                    session_id = res_json.get("session_id")
-                    logger.info(f"Session established: {session_id}")
+                full_response = ""
+                for line in res.iter_lines():
+                    if line:
+                        decoded_line = line.decode('utf-8')
+                        full_response += decoded_line
+                
+                responses.append({"status": "stream_completed", "full_response_length": len(full_response)})
 
             logger.info("Multi-turn stateful flow completed successfully.")
             return json.dumps({"status": "success", "scenario": scenario, "responses": responses}), 200, {'Content-Type': 'application/json'}

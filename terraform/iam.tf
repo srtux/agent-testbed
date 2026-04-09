@@ -209,23 +209,23 @@ resource "google_project_iam_member" "vertex_service_agent_trace_agent" {
   member  = "serviceAccount:service-${data.google_project.current.number}@gcp-sa-aiplatform.iam.gserviceaccount.com"
 }
 
-resource "google_project_iam_member" "vertex_service_agent_re_trace_agent" {
-  project = var.project_id
-  role    = "roles/cloudtrace.agent"
-  member  = "serviceAccount:service-${data.google_project.current.number}@gcp-sa-aiplatform-re.iam.gserviceaccount.com"
-}
-
-resource "google_project_iam_member" "vertex_service_agent_re_network_admin" {
-  project = var.project_id
-  role    = "roles/compute.networkAdmin"
-  member  = "serviceAccount:service-${data.google_project.current.number}@gcp-sa-aiplatform-re.iam.gserviceaccount.com"
-}
-
-resource "google_project_iam_member" "vertex_service_agent_re_dns_peer" {
-  project = var.project_id
-  role    = "roles/dns.peer"
-  member  = "serviceAccount:service-${data.google_project.current.number}@gcp-sa-aiplatform-re.iam.gserviceaccount.com"
-}
+# resource "google_project_iam_member" "vertex_service_agent_re_trace_agent" {
+#   project = var.project_id
+#   role    = "roles/cloudtrace.agent"
+#   member  = "serviceAccount:service-${data.google_project.current.number}@gcp-sa-aiplatform-re.iam.gserviceaccount.com"
+# }
+# 
+# resource "google_project_iam_member" "vertex_service_agent_re_network_admin" {
+#   project = var.project_id
+#   role    = "roles/compute.networkAdmin"
+#   member  = "serviceAccount:service-${data.google_project.current.number}@gcp-sa-aiplatform-re.iam.gserviceaccount.com"
+# }
+# 
+# resource "google_project_iam_member" "vertex_service_agent_re_dns_peer" {
+#   project = var.project_id
+#   role    = "roles/dns.peer"
+#   member  = "serviceAccount:service-${data.google_project.current.number}@gcp-sa-aiplatform-re.iam.gserviceaccount.com"
+# }
 
 # --- Bucket-level permissions for Vertex AI Service Agent ---
 resource "google_project_iam_member" "vertex_service_agent_storage_viewer" {

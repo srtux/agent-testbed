@@ -284,7 +284,7 @@ def main():
     print(f"Mode: {mode}" + (f" (domain: {custom_domain})" if custom_domain else " (Cloud Run native URLs + GKE LoadBalancer IPs)"))
     print(f"Logs will be written to: {logs_dir}")
 
-    registry_prefix = f"gcr.io/{project_id}"
+    registry_prefix = f"{region}-docker.pkg.dev/{project_id}/testbed"
     # Get project number to make bucket name unique and avoid name collisions
     try:
         result = subprocess.run(
@@ -466,7 +466,7 @@ def main():
             # Note: We need tf_vars here. If we skipped Phase 2, we need to reconstruct it.
             # For simplicity, we assume if we are running Phase 3 or 4, we have the variables or we just ran Phase 2.
             # Reconstruct tf_vars if needed
-            registry_prefix = f"gcr.io/{project_id}"
+            registry_prefix = f"{region}-docker.pkg.dev/{project_id}/testbed"
             components = {
                 "flight-specialist": "agents/FlightSpecialist",
                 "weather-specialist": "agents/WeatherSpecialist",
