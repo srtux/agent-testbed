@@ -6,6 +6,9 @@ import google.auth.transport.requests
 from dotenv import load_dotenv
 import vertexai
 from vertexai import agent_engines
+import logging
+
+logging.basicConfig(level=logging.INFO)
 
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"))
 

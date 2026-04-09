@@ -1,3 +1,9 @@
+variable "gemini_api_key" {
+  type        = string
+  description = "The Gemini API Key"
+  sensitive   = true
+}
+
 variable "deploy_bucket_name" {
   type        = string
   description = "The unique GCS bucket name for deployment artifacts"

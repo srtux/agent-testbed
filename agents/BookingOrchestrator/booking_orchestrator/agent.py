@@ -17,6 +17,9 @@ from opentelemetry.propagate import inject
 
 logger = logging.getLogger(__name__)
 
+from testbed_utils.telemetry import setup_authenticated_transport
+setup_authenticated_transport()
+
 DEFAULT_PRO_MODEL = os.environ.get("PRO_MODEL", "gemini-2.5-pro")
 
 # --- Local Tools (real compute) ---
@@ -91,11 +94,14 @@ async def finalize_bookings(request: BookingRequest) -> dict:
                 if res.content and len(res.content) > 0:
                     data = res.content[0].text
                     if isinstance(data, str):
-                        return json.loads(data)
+                        data = json.loads(data)
+                    logger.info(f"Inventory MCP response for {user_id}: {data}")
                     return data
     except Exception as e:
         logger.warning(f"FastMCP call failed, mocking response natively: {e}")
-        return {"status": "success", "confirmation": "CNF-12345"}
+        mock_res = {"status": "success", "confirmation": "CNF-12345"}
+        logger.info(f"Returning mock response for {user_id}: {mock_res}")
+        return mock_res
 
 
 agent = LlmAgent(

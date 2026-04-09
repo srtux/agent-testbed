@@ -60,10 +60,12 @@ async def research_destination(destination: str, dates: str) -> dict:
                 logger.info("Executing Wiki SQL...")
                 wiki_res = await session.call_tool("execute_sql", arguments={"sql": wiki_sql}, meta=meta)
 
-                return {
+                res = {
                     "weather_data": weather_res.content[0].text if weather_res.content else "No Data",
                     "popularity_data": wiki_res.content[0].text if wiki_res.content else "No Data"
                 }
+                logger.info(f"BigQuery MCP results for {destination}: {res}")
+                return res
     except Exception as e:
         logger.warning(f"Failed to query Remote BigQuery MCP, using local mock fallback: {e}")
         return {
@@ -87,7 +89,9 @@ async def call_flight_specialist(user_id: str, destination: str, departure_airpo
     async with httpx.AsyncClient() as client:
         response = await client.post(url, json=payload, timeout=60.0)
     response.raise_for_status()
-    return response.json()
+    res_json = response.json()
+    logger.info(f"FlightSpecialist response for {user_id}: {res_json}")
+    return res_json
 
 async def call_hotel_specialist(user_id: str, destination: str, dates: str) -> dict:
     """Delegates to HotelSpecialist on GKE to search hotels."""
@@ -100,7 +104,9 @@ async def call_hotel_specialist(user_id: str, destination: str, dates: str) -> d
     async with httpx.AsyncClient() as client:
         response = await client.post(url, json=payload, timeout=60.0)
     response.raise_for_status()
-    return response.json()
+    res_json = response.json()
+    logger.info(f"HotelSpecialist response for {user_id}: {res_json}")
+    return res_json
 
 async def call_car_specialist(user_id: str, destination: str, dates: str) -> dict:
     """Delegates to CarRentalSpecialist on GKE to rent cars."""
@@ -113,7 +119,9 @@ async def call_car_specialist(user_id: str, destination: str, dates: str) -> dic
     async with httpx.AsyncClient() as client:
         response = await client.post(url, json=payload, timeout=60.0)
     response.raise_for_status()
-    return response.json()
+    res_json = response.json()
+    logger.info(f"CarRentalSpecialist response for {user_id}: {res_json}")
+    return res_json
 
 async def handoff_to_booking(user_id: str, itinerary_details: str) -> dict:
     """Delegates to BookingOrchestrator to finalize and book the itinerary."""
@@ -125,7 +133,9 @@ async def handoff_to_booking(user_id: str, itinerary_details: str) -> dict:
     async with httpx.AsyncClient() as client:
         response = await client.post(url, json=payload, timeout=60.0)
     response.raise_for_status()
-    return response.json()
+    res_json = response.json()
+    logger.info(f"BookingOrchestrator response for {user_id}: {res_json}")
+    return res_json
 
 
 # --- Planning Agent ---

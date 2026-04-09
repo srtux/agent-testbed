@@ -38,7 +38,7 @@ async def health():
 
 @app.post("/chat")
 async def chat_endpoint(request: CarRequest):
-    logger.info(f"Car Rental Specialist securing a vehicle at {request.destination}")
+    logger.info(f"Car Rental Specialist securing a vehicle at {request.destination} for user {request.user_id}")
     prompt = f"Find a rental car at {request.destination} for {request.dates}. User: {request.user_id}."
 
     final_response = None
@@ -48,6 +48,7 @@ async def chat_endpoint(request: CarRequest):
                 if part.text:
                     final_response = (final_response or "") + part.text
 
+    logger.info(f"Car Rental Specialist completed for user {request.user_id}. Response: {final_response}")
     return {"status": "complete", "car_summary": final_response}
 
 if __name__ == "__main__":

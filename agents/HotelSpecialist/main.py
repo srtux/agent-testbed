@@ -38,7 +38,7 @@ async def health():
 
 @app.post("/chat")
 async def chat_endpoint(request: HotelRequest):
-    logger.info(f"Hotel Specialist coordinating lodging at {request.destination}")
+    logger.info(f"Hotel Specialist coordinating lodging at {request.destination} for user {request.user_id}")
     prompt = f"Find a hotel at {request.destination} for {request.dates}. Ensure you coordinate with Car Rental. User: {request.user_id}."
 
     final_response = None
@@ -48,6 +48,7 @@ async def chat_endpoint(request: HotelRequest):
                 if part.text:
                     final_response = (final_response or "") + part.text
 
+    logger.info(f"Hotel Specialist completed for user {request.user_id}. Response: {final_response}")
     return {"status": "complete", "hotel_summary": final_response}
 
 if __name__ == "__main__":

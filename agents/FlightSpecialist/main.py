@@ -53,6 +53,7 @@ async def chat_endpoint(request: ChatRequest):
                 if part.text:
                     final_response = (final_response or "") + part.text
 
+    logger.info(f"Flight Specialist completed for user {request.user_id}. Response: {final_response}")
     return {"agent_response": final_response}
 
 if __name__ == "__main__":

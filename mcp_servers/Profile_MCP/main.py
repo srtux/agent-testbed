@@ -63,6 +63,7 @@ async def get_user_preferences(user_id: str, ctx: Context) -> dict:
             "loyalty_tier": "Gold",
             "preferences": {"seat": "aisle"}
         }
+        logger.info(f"Returning preferences for {user_id}: {prefs}")
         return prefs
 
 # --- FastAPI App Wrapping FastMCP ---

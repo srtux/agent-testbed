@@ -51,6 +51,10 @@ resource "google_cloud_run_v2_service" "flight_specialist" {
         value = "true"
       }
       env {
+        name  = "GEMINI_API_KEY"
+        value = var.gemini_api_key
+      }
+      env {
         name  = "GOOGLE_CLOUD_PROJECT"
         value = var.project_id
       }
@@ -119,6 +123,10 @@ resource "google_cloud_run_v2_service" "weather_specialist" {
         value = "true"
       }
       env {
+        name  = "GEMINI_API_KEY"
+        value = var.gemini_api_key
+      }
+      env {
         name  = "GOOGLE_CLOUD_PROJECT"
         value = var.project_id
       }
@@ -177,6 +185,10 @@ resource "google_cloud_run_v2_service" "profile_mcp" {
       env {
         name  = "OTEL_SERVICE_NAME"
         value = "profile-mcp"
+      }
+      env {
+        name  = "GEMINI_API_KEY"
+        value = var.gemini_api_key
       }
       env {
         name  = "DEPLOY_TIMESTAMP"

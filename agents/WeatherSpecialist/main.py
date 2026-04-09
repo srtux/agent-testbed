@@ -37,7 +37,7 @@ async def health():
 
 @app.post("/chat")
 async def chat_endpoint(request: WeatherRequest):
-    logger.info(f"Weather Specialist checking conditions for {request.destination}")
+    logger.info(f"Weather Specialist checking conditions for {request.destination} for user {request.user_id}")
     itinerary_context = (request.itinerary_so_far or "")[:2000]
     prompt = f"Check weather for {request.destination}. Current itinerary: {itinerary_context}. User: {request.user_id}. Finalize with Booking Orchestrator."
 
@@ -48,6 +48,7 @@ async def chat_endpoint(request: WeatherRequest):
                 if part.text:
                     final_response = (final_response or "") + part.text
 
+    logger.info(f"Weather Specialist completed for user {request.user_id}. Response: {final_response}")
     return {"status": "complete", "weather_agent_summary": final_response}
 
 if __name__ == "__main__":

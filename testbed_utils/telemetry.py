@@ -134,6 +134,7 @@ def setup_telemetry(force_cloud_trace: bool = False):
 
 def _needs_oidc_auth(url):
     """Determines if a URL requires OIDC token injection for service-to-service auth."""
+    logger.warning(f"Checking if {url} needs OIDC auth")
     if ".a.run.app" in url or ".cloudfunctions.net" in url:
         return True
     custom_domain = os.environ.get("CUSTOM_DOMAIN", "")
@@ -190,11 +191,11 @@ def _setup_oidc_auth(requests_inst, httpx_inst):
         if cached and cached[1] > time.monotonic():
             return cached[0]
         try:
-            logger.info(f"Fetching OIDC token for audience: {audience}")
+            logger.warning(f"Fetching OIDC token for audience: {audience}")
             auth_req = google.auth.transport.requests.Request()
             token = id_token.fetch_id_token(auth_req, audience)
             token_cache[audience] = (token, time.monotonic() + _TOKEN_TTL_SECONDS)
-            logger.info(f"Successfully fetched OIDC token for {audience}")
+            logger.warning(f"Successfully fetched OIDC token for {audience}")
             return token
         except Exception as e:
             logger.exception(f"Failed to fetch OIDC token for {audience}")
@@ -219,12 +220,13 @@ def _setup_oidc_auth(requests_inst, httpx_inst):
     # For HTTPX (ADK uses this)
     def httpx_request_hook(span, request):
         url = str(request.url)
+        logger.warning(f"Intercepted HTTPX request to: {url}")
         if _needs_oidc_auth(url):
             audience = _get_audience(url)
-            logger.info(f"URL {url} needs OIDC auth, audience: {audience}")
+            logger.warning(f"URL {url} needs OIDC auth, audience: {audience}")
             token = get_oidc_token(audience)
             if token:
-                logger.info(f"Injecting OIDC token for {url}")
+                logger.warning(f"Injecting OIDC token for {url}")
                 request.headers["Authorization"] = f"Bearer {token}"
             else:
                 logger.warning(f"No OIDC token available for {url}")

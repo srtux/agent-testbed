@@ -391,6 +391,10 @@ def main():
         for key, value in image_urls.items():
             tf_vars.extend(["-var", f"{key}={value}"])
 
+        gemini_api_key = env.get("GEMINI_API_KEY")
+        if gemini_api_key:
+            tf_vars.extend(["-var", f"gemini_api_key={gemini_api_key}"])
+
         # Automatically handle 'already exists' for SAs and Network Attachments
         ensure_terraform_imports(terraform_dir, project_id, region, tf_vars, bucket_name)
 
@@ -490,6 +494,10 @@ def main():
             ]
             for key, value in image_urls.items():
                 tf_vars.extend(["-var", f"{key}={value}"])
+
+            gemini_api_key = env.get("GEMINI_API_KEY")
+            if gemini_api_key:
+                tf_vars.extend(["-var", f"gemini_api_key={gemini_api_key}"])
 
             tf_vars_phase4 = tf_vars.copy()
             if root_router_resource:

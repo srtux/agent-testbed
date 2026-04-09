@@ -59,7 +59,9 @@ async def get_hotel_inventory(destination: str, ctx: Context) -> dict:
         span.set_attribute("mcp.tool.name", "get_hotel_inventory")
         span.set_attribute("mcp.tool.arguments.destination", destination)
         logger.info(f"Serving inventory for {destination}")
-        return {"cost": 250, "hotel_name": f"{destination} Cloud Suites"}
+        res = {"cost": 250, "hotel_name": f"{destination} Cloud Suites"}
+        logger.info(f"Returning inventory for {destination}: {res}")
+        return res
 
 @mcp.tool()
 async def get_weather(location: str, ctx: Context) -> dict:
@@ -68,7 +70,9 @@ async def get_weather(location: str, ctx: Context) -> dict:
         span.set_attribute("mcp.tool.name", "get_weather")
         span.set_attribute("mcp.tool.arguments.location", location)
         logger.info(f"Serving weather for {location}")
-        return {"condition": "Sunny", "temperature_c": 24}
+        res = {"condition": "Sunny", "temperature_c": 24}
+        logger.info(f"Returning weather for {location}: {res}")
+        return res
 
 @mcp.tool()
 async def commit_booking(user_id: str, flight_id: str = "", hotel_id: str = "", car_id: str = "", ctx: Context = None) -> dict:
@@ -77,7 +81,9 @@ async def commit_booking(user_id: str, flight_id: str = "", hotel_id: str = "", 
         span.set_attribute("mcp.tool.name", "commit_booking")
         span.set_attribute("mcp.tool.arguments.user_id", user_id)
         logger.info(f"Committing entire travel plan for {user_id} (flight={flight_id}, hotel={hotel_id}, car={car_id})")
-        return {"status": "success", "confirmation": "CNF-INVENTORY-OK"}
+        res = {"status": "success", "confirmation": "CNF-INVENTORY-OK"}
+        logger.info(f"Returning booking status for {user_id}: {res}")
+        return res
 
 # --- FastAPI App Wrapping FastMCP ---
 app = mcp.sse_app()
