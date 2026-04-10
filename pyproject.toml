@@ -58,3 +58,15 @@ members = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["scripts", "testbed_utils"]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = ["E402", "E501"]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.15.10",
+]

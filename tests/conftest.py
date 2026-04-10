@@ -1,16 +1,24 @@
 import os
 import subprocess
-import sys
 import time
 
+import pytest
 
-def main():
-    """Runs all Agents and MCP servers locally using uvicorn on specific ports."""
 
+@pytest.fixture(scope="session", autouse=True)
+def start_local_services():
+    """Automatically starts all local services (Agents and MCP servers) for the test session."""
+    # Check if we are running local tests
+    endpoint = os.environ.get("ROOT_ROUTER_ENDPOINT", "http://localhost:8080/chat")
+    if "localhost" not in endpoint and not os.environ.get("FORCE_LOCAL_SERVICES"):
+        print("Skipping local services startup as endpoint is not localhost.")
+        yield
+        return
+
+    print("🚀 Starting all testbed services locally for testing...")
     root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
     services = [
-        # Agents
         {"name": "RootRouter", "path": "agents/RootRouter", "port": 8080},
         {
             "name": "BookingOrchestrator",
@@ -25,16 +33,12 @@ def main():
             "path": "agents/CarRentalSpecialist",
             "port": 8085,
         },
-        # MCP Servers
         {"name": "Profile_MCP", "path": "mcp_servers/Profile_MCP", "port": 8090},
         {"name": "Inventory_MCP", "path": "mcp_servers/Inventory_MCP", "port": 8091},
     ]
 
     processes = []
-
-    print("🚀 Starting all testbed services locally...")
-
-    # Optional: ensure python-dotenv is loaded by uvicorn by installing it in the venv
+    log_files = []
 
     try:
         for svc in services:
@@ -43,32 +47,30 @@ def main():
                 print(f"⚠️ Warning: Directory not found for {svc['name']} at {svc_dir}")
                 continue
 
-            print(f"Starting {svc['name']} on port {svc['port']}...")
-
-            # Check if the port is already in use and warn before killing
+            # Check if port in use
             check = subprocess.run(
                 f"lsof -ti:{svc['port']}", shell=True, capture_output=True, text=True
             )
             if check.stdout.strip():
-                pids = check.stdout.strip().split("\n")
                 print(
-                    f"  ⚠️  Port {svc['port']} in use by PID(s): {', '.join(pids)} — terminating..."
+                    f"Port {svc['port']} already in use, skipping startup for {svc['name']}."
                 )
-                for pid in pids:
-                    # Use SIGTERM first for graceful shutdown
-                    subprocess.run(["kill", pid.strip()], capture_output=True)
-                time.sleep(0.5)
-                # Force-kill only if still alive
-                for pid in pids:
-                    subprocess.run(["kill", "-9", pid.strip()], capture_output=True)
+                continue
 
             env = os.environ.copy()
-            # Override to false locally so setup_telemetry() initializes a provider
-            env["GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY"] = "false"
-            # Uvicorn reads .env natively if python-dotenv is installed,
+            # Set to true to disable manual trace setup in setup_telemetry() for local tests,
+            # avoiding connection errors to localhost:4317 if no collector is running.
+            env["GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY"] = "true"
+            # Force ADK to use Vertex AI (via patched google_llm.py)
+            env["USE_VERTEX_AI"] = "true"
 
-            # but we'll also rely on the CLI --env-file if needed, but uvicorn handles it.
+            # Create log file for the service
+            log_dir = os.path.join(root_dir, "tests", "logs")
+            os.makedirs(log_dir, exist_ok=True)
+            log_file = open(os.path.join(log_dir, f"{svc['name']}.log"), "w")
+            log_files.append(log_file)
 
+            # Start service
             p = subprocess.Popen(
                 [
                     "uv",
@@ -82,27 +84,28 @@ def main():
                 ],
                 cwd=svc_dir,
                 env=env,
-                stdout=sys.stdout,
-                stderr=sys.stderr,
+                stdout=log_file,
+                stderr=log_file,
             )
             processes.append(p)
-            # Give each service a moment to bind to the port before starting the next
-            time.sleep(0.5)
+            time.sleep(0.5)  # Give it time to bind
 
-        print("\n✅ All services are running! Press Ctrl+C to stop all.")
-        print("   RootRouter Interface: http://localhost:8080/chat")
+        print("✅ All services started.")
 
-        while True:
-            time.sleep(1)
+        yield  # Run tests
 
-    except KeyboardInterrupt:
+    finally:
         print("\n🛑 Shutting down all services...")
         for p in processes:
             p.terminate()
         for p in processes:
-            p.wait()
+            try:
+                p.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                p.kill()
+
+        # Close log files
+        for f in log_files:
+            f.close()
+
         print("Done.")
-
-
-if __name__ == "__main__":
-    main()

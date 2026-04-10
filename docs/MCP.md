@@ -10,6 +10,28 @@ Unlike A2A which delegates full prompt processing to another agent, **MCP** allo
 
 *   **Protocol**: Server-Sent Events (SSE) running over HTTP.
 
+## 📊 Sequence Diagram
+
+```mermaid
+sequenceDiagram
+    participant Agent as Agent (ADK)
+    participant ClientSession as MCP Client Session
+    participant SSEServer as MCP Server (FastMCP)
+
+    Agent->>ClientSession: call_tool("tool_name", arguments, meta)
+    activate ClientSession
+    ClientSession->>ClientSession: inject(meta) // adds traceparent
+    ClientSession->>SSEServer: Send SSE Request with payload + _meta
+    activate SSEServer
+    SSEServer->>SSEServer: _extract_trace_context(ctx)
+    SSEServer->>SSEServer: Start span with extracted context
+    SSEServer->>SSEServer: Execute tool logic
+    SSEServer-->>ClientSession: Send SSE Response
+    deactivate SSEServer
+    ClientSession-->>Agent: Return result
+    deactivate ClientSession
+```
+
 ---
 
 ## 💻 2. Implementation Example

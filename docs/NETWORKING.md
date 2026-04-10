@@ -12,6 +12,47 @@ The testbed utilizes a **Hybrid Serverless & Kubernetes** topology designed to e
 *   **Cloud Run**: Stateless microservices.
 *   **GKE**: Stateful or heavier loads scale behind Kubernetes load balancers.
 
+## 📊 Topology Diagram
+
+```mermaid
+graph TD
+    subgraph Google Managed Project
+        AE[Agent Engine<br/>RootRouter<br/>BookingOrchestrator]
+    end
+
+    subgraph Customer VPC
+        subgraph Subnet: PSC Egress
+            PSC[PSC Interface Gateway]
+        end
+
+        subgraph Subnet: Cloud Run
+            CR_Flight[Flight Specialist]
+            CR_Profile[Profile MCP]
+        end
+
+        subgraph Subnet: GKE
+            GKE_LB[Internal Load Balancer]
+            GKE_Hotel[Hotel Specialist]
+            GKE_Inventory[Inventory MCP]
+        end
+
+        subgraph Subnet: Bastion
+            Bastion[Bastion Host]
+        end
+    end
+
+    AE -->|PSC| PSC
+    PSC -->|Internal Routing| CR_Flight
+    PSC -->|Internal Routing| GKE_LB
+    CR_Flight -->|Direct VPC Egress| GKE_LB
+    GKE_LB --> GKE_Hotel
+    GKE_LB --> GKE_Inventory
+    
+    Internet((Internet)) -->|IAP| Bastion
+    Bastion -->|SOCKS Tunnel| CR_Flight
+    Bastion -->|SOCKS Tunnel| GKE_LB
+```
+
 ---
 
 ## 🚦 1. Deployment Modes

@@ -13,8 +13,8 @@ Usage:
     report = verifier.verify_agent_spans(traces)
 """
 
-import os
 import logging
+import os
 from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
@@ -25,24 +25,39 @@ logger = logging.getLogger(__name__)
 EXPECTED_AGENT_SPANS = {
     "RootRouter": ["RootRouter", "extract_travel_intent"],
     "IntentClassifier": ["IntentClassifier"],
-    "FlightSpecialist": ["FlightSpecialist", "validate_dates", "check_flight_availability"],
+    "FlightSpecialist": [
+        "FlightSpecialist",
+        "validate_dates",
+        "check_flight_availability",
+    ],
     "SeatSelector": ["SeatSelector"],
     "HotelSpecialist": ["HotelSpecialist", "calculate_nightly_rate"],
     "CarRentalSpecialist": ["CarRentalSpecialist", "calculate_rental_price"],
     "WeatherSpecialist": ["WeatherSpecialist", "suggest_packing"],
-    "BookingOrchestrator": ["BookingOrchestrator", "calculate_trip_cost", "format_itinerary"],
+    "BookingOrchestrator": [
+        "BookingOrchestrator",
+        "calculate_trip_cost",
+        "format_itinerary",
+    ],
     "ItineraryValidator": ["ItineraryValidator"],
 }
 
 EXPECTED_MCP_SPANS = {
     "Profile_MCP": ["get_user_preferences", "profile", "Profile"],
-    "Inventory_MCP": ["get_hotel_inventory", "get_weather", "commit_booking", "inventory", "Inventory"],
+    "Inventory_MCP": [
+        "get_hotel_inventory",
+        "get_weather",
+        "commit_booking",
+        "inventory",
+        "Inventory",
+    ],
 }
 
 
 @dataclass
 class SpanInfo:
     """Lightweight representation of a trace span."""
+
     span_id: str
     name: str
     parent_span_id: str = ""
@@ -55,6 +70,7 @@ class SpanInfo:
 @dataclass
 class TraceInfo:
     """Lightweight representation of a trace."""
+
     trace_id: str
     spans: list = field(default_factory=list)
 
@@ -62,6 +78,7 @@ class TraceInfo:
 @dataclass
 class VerificationReport:
     """Results of trace verification."""
+
     total_traces: int = 0
     traces_with_agents: int = 0
     traces_with_mcp: int = 0
@@ -74,7 +91,7 @@ class VerificationReport:
 
     def summary(self) -> str:
         lines = [
-            f"Trace Verification Report",
+            "Trace Verification Report",
             f"  Total traces examined: {self.total_traces}",
             f"  Traces with agent spans: {self.traces_with_agents}",
             f"  Traces with MCP spans: {self.traces_with_mcp}",
@@ -84,7 +101,9 @@ class VerificationReport:
         if self.missing_agents:
             lines.append(f"  MISSING agents: {', '.join(self.missing_agents)}")
         if self.missing_mcp_servers:
-            lines.append(f"  MISSING MCP servers: {', '.join(self.missing_mcp_servers)}")
+            lines.append(
+                f"  MISSING MCP servers: {', '.join(self.missing_mcp_servers)}"
+            )
         if self.errors:
             lines.append(f"  Errors: {len(self.errors)}")
             for e in self.errors[:5]:
@@ -150,7 +169,9 @@ def _analyze_traces(
     elif require_all_mcp and report.missing_mcp_servers:
         report.passed = False
     else:
-        report.passed = len(report.agents_found) > 0 and len(report.mcp_servers_found) > 0
+        report.passed = (
+            len(report.agents_found) > 0 and len(report.mcp_servers_found) > 0
+        )
 
     return report
 
@@ -166,6 +187,7 @@ class CloudTraceVerifier:
     def list_recent_traces(self, minutes: int = 10, page_size: int = 20) -> list:
         """List recent traces from Cloud Trace v1 API."""
         import datetime
+
         from googleapiclient import discovery
 
         now = datetime.datetime.now(datetime.timezone.utc)
@@ -178,35 +200,43 @@ class CloudTraceVerifier:
 
         traces = []
         try:
-            request = service.projects().traces().list(
-                projectId=self.project_id,
-                startTime=start_time,
-                endTime=end_time,
-                pageSize=page_size,
-                orderBy="start desc",
+            request = (
+                service.projects()
+                .traces()
+                .list(
+                    projectId=self.project_id,
+                    startTime=start_time,
+                    endTime=end_time,
+                    pageSize=page_size,
+                    orderBy="start desc",
+                )
             )
             response = request.execute()
-            
+
             for trace_summary in response.get("traces", []):
                 trace_id = trace_summary.get("traceId", "")
                 try:
-                    trace_data = service.projects().traces().get(
-                        projectId=self.project_id,
-                        traceId=trace_id
-                    ).execute()
-                except Exception as get_err:
+                    trace_data = (
+                        service.projects()
+                        .traces()
+                        .get(projectId=self.project_id, traceId=trace_id)
+                        .execute()
+                    )
+                except Exception:
                     continue
 
                 spans = []
                 for span_data in trace_data.get("spans", []):
-                    spans.append(SpanInfo(
-                        span_id=span_data.get("spanId", ""),
-                        name=span_data.get("name", ""),
-                        parent_span_id=span_data.get("parentSpanId", ""),
-                        start_time=span_data.get("startTime", ""),
-                        end_time=span_data.get("endTime", ""),
-                        attributes=span_data.get("labels", {})
-                    ))
+                    spans.append(
+                        SpanInfo(
+                            span_id=span_data.get("spanId", ""),
+                            name=span_data.get("name", ""),
+                            parent_span_id=span_data.get("parentSpanId", ""),
+                            start_time=span_data.get("startTime", ""),
+                            end_time=span_data.get("endTime", ""),
+                            attributes=span_data.get("labels", {}),
+                        )
+                    )
                 traces.append(TraceInfo(trace_id=trace_id, spans=spans))
 
         except Exception as e:
@@ -239,17 +269,21 @@ class InMemoryTraceVerifier:
         spans_by_trace = {}
         for span in self.exporter.get_finished_spans():
             ctx = span.get_span_context()
-            trace_id = format(ctx.trace_id, '032x')
+            trace_id = format(ctx.trace_id, "032x")
             if trace_id not in spans_by_trace:
                 spans_by_trace[trace_id] = TraceInfo(trace_id=trace_id)
 
-            spans_by_trace[trace_id].spans.append(SpanInfo(
-                span_id=format(ctx.span_id, '016x'),
-                name=span.name,
-                parent_span_id=format(span.parent.span_id, '016x') if span.parent else "",
-                status=str(span.status.status_code) if span.status else "",
-                attributes=dict(span.attributes) if span.attributes else {},
-            ))
+            spans_by_trace[trace_id].spans.append(
+                SpanInfo(
+                    span_id=format(ctx.span_id, "016x"),
+                    name=span.name,
+                    parent_span_id=format(span.parent.span_id, "016x")
+                    if span.parent
+                    else "",
+                    status=str(span.status.status_code) if span.status else "",
+                    attributes=dict(span.attributes) if span.attributes else {},
+                )
+            )
 
         return list(spans_by_trace.values())
 

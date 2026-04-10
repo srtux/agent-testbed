@@ -10,6 +10,34 @@ In this mesh, an agent can distribute part of its reasoning process by calling a
 *   **Protocol**: Standard HTTP/JSON `POST` requests.
 *   **Edge Design**: Wraps the call inside a Python function tool available to the `LlmAgent`.
 
+## 📊 Sequence Diagram
+
+```mermaid
+sequenceDiagram
+    participant ClientAgent as Client Agent (ADK)
+    participant HTTPX as HTTPX Client
+    participant OIDC as OIDC Token Helper
+    participant ServerAgent as Server Agent (FastAPI)
+
+    ClientAgent->>HTTPX: post(url, payload)
+    activate HTTPX
+    HTTPX->>OIDC: Intercept request
+    activate OIDC
+    OIDC->>OIDC: Fetch ID Token (ADC)
+    OIDC-->>HTTPX: Return Token
+    deactivate OIDC
+    HTTPX->>HTTPX: Inject Authorization header
+    HTTPX->>HTTPX: Inject traceparent header
+    HTTPX->>ServerAgent: HTTP POST /chat
+    activate ServerAgent
+    ServerAgent->>ServerAgent: Extract traceparent
+    ServerAgent->>ServerAgent: Process request
+    ServerAgent-->>HTTPX: HTTP 200 OK (Response)
+    deactivate ServerAgent
+    HTTPX-->>ClientAgent: Response JSON
+    deactivate HTTPX
+```
+
 ---
 
 ## 💻 2. Implementation Example

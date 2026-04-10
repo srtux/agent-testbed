@@ -47,7 +47,25 @@ uv run test-remote
 
 ---
 
-## 🔍 3. Trace Verification
+## 🧹 3. Linting and Formatting
+
+We use **Ruff** for fast linting and formatting to keep the codebase clean.
+
+### Run Linter
+To check for lint errors:
+```bash
+uv run ruff check .
+```
+
+### Run Formatter
+To automatically format the code:
+```bash
+uv run ruff format .
+```
+
+---
+
+## 🔍 4. Trace Verification
 
 We use automated trace inspection loops asserting distributed tracing setups actually link telemetry data across services safely.
 

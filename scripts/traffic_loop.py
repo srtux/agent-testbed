@@ -18,21 +18,23 @@ Usage:
     uv run traffic-loop --duration 300
 """
 
-import os
-import sys
-import time
+import argparse
 import json
+import logging
+import os
 import random
 import signal
-import logging
-import argparse
 import threading
-from datetime import datetime, timezone
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timezone
+
 from dotenv import load_dotenv
 
 # Load .env from project root
-load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"))
+load_dotenv(
+    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -50,20 +52,15 @@ PROMPTS = [
     "My trip to Paris is in jeopardy because of a missed connection. Grab my preferences, verify Paris weather, book a new flight and adjust my hotel and car rental.",
     "Plan a complete business trip to JFK area for next week. I need flights, a luxury hotel, and a rental car. Check the weather forecast too.",
     "Book a round trip to LAX departing Monday returning Thursday. Include hotel and car rental. Check my loyalty tier for discounts.",
-
     # Flight-focused (exercises FlightSpecialist + SeatSelector sub-agent)
     "Find me a flight to SFO departing next Wednesday. I prefer window seats.",
     "What flights are available to JFK next Friday? I need business class.",
-
     # Hotel-focused (exercises HotelSpecialist -> Inventory MCP -> CarRental)
     "I need a hotel in San Francisco for 3 nights starting next Tuesday.",
-
     # Weather-focused (exercises WeatherSpecialist -> Inventory MCP)
     "What's the weather like in Tokyo next week? I want packing suggestions.",
-
     # Profile-focused (exercises Profile MCP)
     "Check my travel profile and suggest a trip based on my preferences.",
-
     # Cancellation/modification (exercises IntentClassifier sub-agent)
     "I need to cancel my upcoming trip to London.",
     "Can I modify my hotel booking in Paris to extend by 2 nights?",
@@ -96,7 +93,7 @@ def send_request(endpoint: str, request_num: int, timeout: float = 120.0) -> dic
         if endpoint.startswith("projects/"):
             import vertexai
             from vertexai import agent_engines
-            
+
             project_id = os.environ.get("GOOGLE_CLOUD_PROJECT")
             location = os.environ.get("GOOGLE_CLOUD_LOCATION", "us-central1")
             vertexai.init(project=project_id, location=location)
@@ -104,19 +101,29 @@ def send_request(endpoint: str, request_num: int, timeout: float = 120.0) -> dic
             ae = agent_engines.AgentEngine(endpoint)
             # stream_query is recommended for Reasoning Engines
             response = ae.stream_query(user_id=user_id, message=prompt)
-            
+
             final_response = ""
             for event in response:
                 is_dict = isinstance(event, dict)
-                content = event.get("content") if is_dict else getattr(event, "content", None)
+                content = (
+                    event.get("content") if is_dict else getattr(event, "content", None)
+                )
                 if content:
-                    parts = content.get("parts", []) if is_dict else getattr(content, "parts", [])
+                    parts = (
+                        content.get("parts", [])
+                        if is_dict
+                        else getattr(content, "parts", [])
+                    )
                     for part in parts:
-                        text = part.get("text") if is_dict else getattr(part, "text", None)
+                        text = (
+                            part.get("text") if is_dict else getattr(part, "text", None)
+                        )
                         if text:
                             final_response += text
                         if is_dict and "function_call" in part:
-                            final_response += f"Tool call: {part['function_call']['name']}\n"
+                            final_response += (
+                                f"Tool call: {part['function_call']['name']}\n"
+                            )
 
             elapsed = time.monotonic() - start
             result["status_code"] = 200
@@ -147,7 +154,9 @@ def send_request(endpoint: str, request_num: int, timeout: float = 120.0) -> dic
             else:
                 result["status"] = "http_error"
                 result["error"] = resp.text[:200]
-                logger.warning(f"[#{request_num}] HTTP {resp.status_code} in {elapsed:.1f}s | {resp.text[:100]}")
+                logger.warning(
+                    f"[#{request_num}] HTTP {resp.status_code} in {elapsed:.1f}s | {resp.text[:100]}"
+                )
 
     except Exception as e:
         elapsed = time.monotonic() - start
@@ -160,19 +169,39 @@ def send_request(endpoint: str, request_num: int, timeout: float = 120.0) -> dic
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Continuous traffic generator for Agent Testbed")
-    parser.add_argument("--interval", type=int, default=60, help="Seconds between bursts (default: 60)")
-    parser.add_argument("--burst", type=int, default=1, help="Requests per burst (default: 1)")
-    parser.add_argument("--duration", type=int, default=0, help="Run for N seconds then stop (0 = indefinite)")
-    parser.add_argument("--timeout", type=float, default=120.0, help="Per-request timeout in seconds (default: 120)")
-    parser.add_argument("--output", type=str, default="", help="Path to write JSON results log")
+    parser = argparse.ArgumentParser(
+        description="Continuous traffic generator for Agent Testbed"
+    )
+    parser.add_argument(
+        "--interval", type=int, default=60, help="Seconds between bursts (default: 60)"
+    )
+    parser.add_argument(
+        "--burst", type=int, default=1, help="Requests per burst (default: 1)"
+    )
+    parser.add_argument(
+        "--duration",
+        type=int,
+        default=0,
+        help="Run for N seconds then stop (0 = indefinite)",
+    )
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        default=120.0,
+        help="Per-request timeout in seconds (default: 120)",
+    )
+    parser.add_argument(
+        "--output", type=str, default="", help="Path to write JSON results log"
+    )
     args = parser.parse_args()
 
     endpoint = os.environ.get("ROOT_ROUTER_URL", "http://localhost:8080/chat")
     endpoint = _resolve_endpoint(endpoint)
 
     logger.info(f"Starting continuous traffic to: {endpoint}")
-    logger.info(f"Interval: {args.interval}s | Burst size: {args.burst} | Duration: {'indefinite' if args.duration == 0 else f'{args.duration}s'}")
+    logger.info(
+        f"Interval: {args.interval}s | Burst size: {args.burst} | Duration: {'indefinite' if args.duration == 0 else f'{args.duration}s'}"
+    )
 
     # Graceful shutdown
     stop_event = threading.Event()
@@ -201,7 +230,11 @@ def main():
                 futures = []
                 for _ in range(args.burst):
                     request_counter += 1
-                    futures.append(pool.submit(send_request, endpoint, request_counter, args.timeout))
+                    futures.append(
+                        pool.submit(
+                            send_request, endpoint, request_counter, args.timeout
+                        )
+                    )
                 for future in as_completed(futures):
                     burst_results.append(future.result())
         else:
@@ -213,13 +246,19 @@ def main():
         # Summary for this burst
         ok = sum(1 for r in burst_results if r["status"] == "success")
         fail = len(burst_results) - ok
-        logger.info(f"Burst complete: {ok} ok, {fail} failed | Total requests: {request_counter}")
+        logger.info(
+            f"Burst complete: {ok} ok, {fail} failed | Total requests: {request_counter}"
+        )
 
         # Write results if output path specified
         if args.output:
             try:
                 with open(args.output, "w") as f:
-                    json.dump({"total_requests": request_counter, "results": results}, f, indent=2)
+                    json.dump(
+                        {"total_requests": request_counter, "results": results},
+                        f,
+                        indent=2,
+                    )
             except Exception as e:
                 logger.warning(f"Failed to write results: {e}")
 
@@ -233,11 +272,17 @@ def main():
     total = len(results)
     success = sum(1 for r in results if r["status"] == "success")
     elapsed_total = time.monotonic() - start_time
-    logger.info(f"Traffic loop complete: {success}/{total} succeeded in {elapsed_total:.0f}s")
+    logger.info(
+        f"Traffic loop complete: {success}/{total} succeeded in {elapsed_total:.0f}s"
+    )
 
     if args.output and results:
         with open(args.output, "w") as f:
-            json.dump({"total_requests": total, "success": success, "results": results}, f, indent=2)
+            json.dump(
+                {"total_requests": total, "success": success, "results": results},
+                f,
+                indent=2,
+            )
         logger.info(f"Results written to {args.output}")
 
 

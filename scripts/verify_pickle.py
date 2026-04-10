@@ -1,7 +1,8 @@
-
 import os
 import sys
+
 import cloudpickle
+
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
 
@@ -30,10 +31,12 @@ except Exception as e:
 dummy_path = os.path.join(project_root, "dummy_staging")
 if os.path.exists(dummy_path):
     import shutil
+
     shutil.rmtree(dummy_path)
 os.makedirs(dummy_path)
 os.makedirs(os.path.join(dummy_path, "agents"))
-with open(os.path.join(dummy_path, "agents", "__init__.py"), "w") as f: f.write("")
+with open(os.path.join(dummy_path, "agents", "__init__.py"), "w") as f:
+    f.write("")
 
 sys.path.append(dummy_path)
 try:

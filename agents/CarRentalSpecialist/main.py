@@ -1,19 +1,18 @@
-from testbed_utils.telemetry import setup_telemetry
 from testbed_utils.logging import setup_logging
-from testbed_utils.config import DEFAULT_PRO_MODEL
+from testbed_utils.telemetry import setup_telemetry
 
 setup_telemetry()
 logger = setup_logging()
 
-import sys
 import os
-import json
+import sys
 import uuid
+
 from fastapi import FastAPI
-from pydantic import BaseModel
-from google.genai import types
 from google.adk.runners import InMemoryRunner
+from google.genai import types
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from pydantic import BaseModel
 
 # Add local directory to sys.path so 'car_rental_specialist' can be imported absolutely
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -27,30 +26,45 @@ runner.auto_create_session = True
 app = FastAPI()
 FastAPIInstrumentor.instrument_app(app)
 
+
 class CarRequest(BaseModel):
     user_id: str
     destination: str
     dates: str
 
+
 @app.get("/health")
 async def health():
     return {"status": "ok"}
 
+
 @app.post("/chat")
 async def chat_endpoint(request: CarRequest):
-    logger.info(f"Car Rental Specialist securing a vehicle at {request.destination} for user {request.user_id}")
+    logger.info(
+        f"Car Rental Specialist securing a vehicle at {request.destination} for user {request.user_id}"
+    )
     prompt = f"Find a rental car at {request.destination} for {request.dates}. User: {request.user_id}."
 
     final_response = None
-    async for event in runner.run_async(user_id=request.user_id, session_id=str(uuid.uuid4()), new_message=types.Content(role="user", parts=[types.Part.from_text(text=prompt)])):
+    async for event in runner.run_async(
+        user_id=request.user_id,
+        session_id=str(uuid.uuid4()),
+        new_message=types.Content(
+            role="user", parts=[types.Part.from_text(text=prompt)]
+        ),
+    ):
         if hasattr(event, "content") and event.content:
             for part in event.content.parts:
                 if part.text:
                     final_response = (final_response or "") + part.text
 
-    logger.info(f"Car Rental Specialist completed for user {request.user_id}. Response: {final_response}")
+    logger.info(
+        f"Car Rental Specialist completed for user {request.user_id}. Response: {final_response}"
+    )
     return {"status": "complete", "car_summary": final_response}
+
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8085)

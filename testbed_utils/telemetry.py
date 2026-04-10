@@ -1,19 +1,22 @@
+import logging
 import os
 import sys
 import time
-import logging
 
 logger = logging.getLogger(__name__)
+
 
 def is_otel_initialized() -> bool:
     """Checks if OpenTelemetry has already been initialized with a real provider."""
     try:
         from opentelemetry import trace
         from opentelemetry.sdk.trace import TracerProvider
+
         provider = trace.get_tracer_provider()
         return isinstance(provider, TracerProvider)
     except (ImportError, Exception):
         return False
+
 
 def _create_authenticated_exporter(OTLPSpanExporter):
     """Creates an OTLPSpanExporter with Google Cloud ADC credentials.
@@ -32,8 +35,8 @@ def _create_authenticated_exporter(OTLPSpanExporter):
 
     try:
         import google.auth
-        import google.auth.transport.requests
         import google.auth.transport.grpc
+        import google.auth.transport.requests
         import grpc
 
         credentials, project = google.auth.default()
@@ -50,15 +53,18 @@ def _create_authenticated_exporter(OTLPSpanExporter):
             credentials=channel_creds,
         )
     except Exception as e:
-        print(f"Warning: Could not create authenticated exporter, falling back to default: {e}", file=sys.stderr)
+        print(
+            f"Warning: Could not create authenticated exporter, falling back to default: {e}",
+            file=sys.stderr,
+        )
         return OTLPSpanExporter()
 
 
 def setup_authenticated_transport():
     """Hooks into Requests and HTTPX to inject OIDC tokens for service-to-service auth."""
-    from opentelemetry.instrumentation.requests import RequestsInstrumentor
     from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
-    
+    from opentelemetry.instrumentation.requests import RequestsInstrumentor
+
     _setup_oidc_auth(RequestsInstrumentor(), HTTPXClientInstrumentor())
 
 
@@ -69,7 +75,7 @@ def setup_telemetry(force_cloud_trace: bool = False):
     """
     if is_otel_initialized():
         return
-    
+
     # Force the latest GenAI semantic conventions
     os.environ["OTEL_SEMCONV_STABILITY_OPT_IN"] = "gen_ai_latest_experimental"
 
@@ -77,33 +83,47 @@ def setup_telemetry(force_cloud_trace: bool = False):
         from opentelemetry import trace
         from opentelemetry.sdk.trace import TracerProvider
         from opentelemetry.sdk.trace.export import BatchSpanProcessor
-        
-        enable_manual_trace = os.environ.get("GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY", "false").lower() != "true"
+
+        enable_manual_trace = (
+            os.environ.get(
+                "GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY", "false"
+            ).lower()
+            != "true"
+        )
 
         if force_cloud_trace or enable_manual_trace:
-            from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+            from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
+                OTLPSpanExporter,
+            )
             from opentelemetry.sdk.resources import Resource
+
             project_id = os.environ.get("GOOGLE_CLOUD_PROJECT", "")
-            
+
             provider = TracerProvider(
-                resource=Resource(attributes={
-                    "service.name": os.environ.get("OTEL_SERVICE_NAME", "unknown_service"),
-                    "gcp.project_id": project_id
-                })
+                resource=Resource(
+                    attributes={
+                        "service.name": os.environ.get(
+                            "OTEL_SERVICE_NAME", "unknown_service"
+                        ),
+                        "gcp.project_id": project_id,
+                    }
+                )
             )
             exporter = _create_authenticated_exporter(OTLPSpanExporter)
             processor = BatchSpanProcessor(exporter)
             provider.add_span_processor(processor)
             trace.set_tracer_provider(provider)
 
+            from opentelemetry import _logs as logs
+            from opentelemetry import metrics
             from opentelemetry.exporter.cloud_logging import CloudLoggingExporter
-            from opentelemetry.exporter.cloud_monitoring import CloudMonitoringMetricsExporter
+            from opentelemetry.exporter.cloud_monitoring import (
+                CloudMonitoringMetricsExporter,
+            )
             from opentelemetry.sdk._logs import LoggerProvider
             from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
             from opentelemetry.sdk.metrics import MeterProvider
             from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
-            from opentelemetry import _logs as logs
-            from opentelemetry import metrics
 
             # Set up logs
             logger_provider = LoggerProvider(resource=provider.resource)
@@ -114,23 +134,26 @@ def setup_telemetry(force_cloud_trace: bool = False):
 
             # Set up metrics
             reader = PeriodicExportingMetricReader(CloudMonitoringMetricsExporter())
-            meter_provider = MeterProvider(metric_readers=[reader], resource=provider.resource)
+            meter_provider = MeterProvider(
+                metric_readers=[reader], resource=provider.resource
+            )
             metrics.set_meter_provider(meter_provider)
 
+        from opentelemetry.instrumentation.google_genai import (
+            GoogleGenAiSdkInstrumentor,
+        )
 
-
-        from opentelemetry.instrumentation.google_genai import GoogleGenAiSdkInstrumentor
-        from opentelemetry.instrumentation.requests import RequestsInstrumentor
-        from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
-        
         # Instrument generic libraries
         GoogleGenAiSdkInstrumentor().instrument()
-        
+
         # We wrap the underlying transport to inject OIDC tokens for service-to-service auth
         setup_authenticated_transport()
-        
+
     except ImportError as e:
-        print(f"Warning: Telemetry dependencies not fully installed: {e}", file=sys.stderr)
+        print(
+            f"Warning: Telemetry dependencies not fully installed: {e}", file=sys.stderr
+        )
+
 
 def _needs_oidc_auth(url):
     """Determines if a URL requires OIDC token injection for service-to-service auth."""
@@ -140,9 +163,10 @@ def _needs_oidc_auth(url):
     custom_domain = os.environ.get("CUSTOM_DOMAIN", "")
     if custom_domain and custom_domain in url:
         return True
-        
+
     # Check audience map for IP/Internal URLs
     import ast
+
     try:
         map_str = os.environ.get("URL_AUDIENCE_MAP", "{}")
         if map_str:
@@ -152,12 +176,14 @@ def _needs_oidc_auth(url):
                 return True
     except Exception:
         pass
-        
+
     return False
+
 
 def _get_audience(url):
     """Resolves the OIDC audience for a given URL."""
     import ast
+
     try:
         map_str = os.environ.get("URL_AUDIENCE_MAP", "{}")
         if map_str:
@@ -168,11 +194,13 @@ def _get_audience(url):
     except Exception:
         pass
     # Fallback to root URL audience
-    parts = url.split('/')
+    parts = url.split("/")
     return f"{parts[0]}//{parts[2]}"
+
 
 # OIDC tokens expire after ~1 hour; refresh 5 minutes before expiry
 _TOKEN_TTL_SECONDS = 55 * 60
+
 
 def _setup_oidc_auth(requests_inst, httpx_inst):
     """
@@ -197,7 +225,7 @@ def _setup_oidc_auth(requests_inst, httpx_inst):
             token_cache[audience] = (token, time.monotonic() + _TOKEN_TTL_SECONDS)
             logger.warning(f"Successfully fetched OIDC token for {audience}")
             return token
-        except Exception as e:
+        except Exception:
             logger.exception(f"Failed to fetch OIDC token for {audience}")
             return None
 
@@ -211,9 +239,17 @@ def _setup_oidc_auth(requests_inst, httpx_inst):
             if token:
                 logger.info(f"Injecting OIDC token for {url}")
                 request.headers["Authorization"] = f"Bearer {token}"
+                # Extract host from audience URL for Cloud Run routing via PSC
+                if audience and ("https://" in audience or "http://" in audience):
+                    host = (
+                        audience.replace("https://", "")
+                        .replace("http://", "")
+                        .split("/")[0]
+                    )
+                    request.headers["Host"] = host
+                    logger.info(f"Set Host header to {host} for PSC routing")
             else:
                 logger.warning(f"No OIDC token available for {url}")
-
 
     requests_inst.instrument(request_hook=requests_request_hook)
 
@@ -228,6 +264,15 @@ def _setup_oidc_auth(requests_inst, httpx_inst):
             if token:
                 logger.warning(f"Injecting OIDC token for {url}")
                 request.headers["Authorization"] = f"Bearer {token}"
+                # Extract host from audience URL for Cloud Run routing via PSC
+                if audience and ("https://" in audience or "http://" in audience):
+                    host = (
+                        audience.replace("https://", "")
+                        .replace("http://", "")
+                        .split("/")[0]
+                    )
+                    request.headers["Host"] = host
+                    logger.warning(f"Set Host header to {host} for PSC routing")
             else:
                 logger.warning(f"No OIDC token available for {url}")
 
