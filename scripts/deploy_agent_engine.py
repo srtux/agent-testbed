@@ -90,7 +90,9 @@ def create_agent(config, custom_domain, project_id, location, bucket, service_ur
     
     # Also register testbed_utils to prevent remote ModuleNotFoundError
     import testbed_utils.telemetry
+    import testbed_utils.logging
     cloudpickle.register_pickle_by_value(testbed_utils.telemetry)
+    cloudpickle.register_pickle_by_value(testbed_utils.logging)
     
     import vertexai
     from google.oauth2.credentials import Credentials
