@@ -63,6 +63,8 @@ def start_local_services():
             env["GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY"] = "true"
             # Force ADK to use Vertex AI (via patched google_llm.py)
             env["USE_VERTEX_AI"] = "true"
+            # Enable mock LLM for fast local testing
+            env["USE_MOCK_LLM"] = "true"
 
             # Create log file for the service
             log_dir = os.path.join(root_dir, "tests", "logs")

@@ -1,5 +1,6 @@
 import os
 
+from testbed_utils import mock_llm  # noqa: F401 # Must be before ADK imports to patch Gemini
 from testbed_utils.logging import setup_logging
 from testbed_utils.telemetry import setup_authenticated_transport
 

@@ -1,3 +1,4 @@
+from testbed_utils import mock_llm  # noqa: F401 # Must be before ADK imports
 from testbed_utils.logging import setup_logging
 from testbed_utils.telemetry import setup_telemetry
 

@@ -1,9 +1,12 @@
 from opentelemetry import propagate, trace
 from opentelemetry.propagate import inject
+from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
 # Ensure we use the W3C traceparent propagator for meta injection tests
 propagate.set_global_textmap(TraceContextTextMapPropagator())
+# Initialize a dummy tracer provider so that spans can be created and injected
+trace.set_tracer_provider(TracerProvider())
 
 
 # A simple mock context class that mirrors what FastMCP passes into handlers
