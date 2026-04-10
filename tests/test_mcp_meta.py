@@ -21,7 +21,7 @@ class MockContext:
 
 
 # Pull the core logic we implanted in the servers
-from mcp_servers.Inventory_MCP.main import _extract_trace_context
+from testbed_utils.mcp_trace_context import extract_trace_context_from_mcp
 
 
 def test_trace_extraction_from_meta():
@@ -45,7 +45,7 @@ def test_trace_extraction_from_meta():
         fastmcp_ctx = MockContext(meta=meta)
 
         # Run the server-side extraction logic
-        extracted_context = _extract_trace_context(fastmcp_ctx)
+        extracted_context = extract_trace_context_from_mcp(fastmcp_ctx)
 
         # In OpenTelemetry Python, extracted context isn't an active span until you start one with it,
         # but the extracted context dict contains the parent Spans.
@@ -64,7 +64,7 @@ def test_trace_extraction_from_meta():
 def test_trace_extraction_no_meta():
     """Validates the system doesn't crash if the _meta array is missing."""
     fastmcp_ctx = MockContext(meta=None)
-    extracted_context = _extract_trace_context(fastmcp_ctx)
+    extracted_context = extract_trace_context_from_mcp(fastmcp_ctx)
 
     # It should extract an empty context but not raise an exception
     assert extracted_context == {}

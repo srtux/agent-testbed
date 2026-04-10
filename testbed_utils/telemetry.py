@@ -39,7 +39,7 @@ def _create_authenticated_exporter(OTLPSpanExporter):
         import google.auth.transport.requests
         import grpc
 
-        credentials, project = google.auth.default()
+        credentials, _project = google.auth.default()
         request = google.auth.transport.requests.Request()
         auth_metadata_plugin = google.auth.transport.grpc.AuthMetadataPlugin(
             credentials=credentials, request=request
@@ -113,31 +113,6 @@ def setup_telemetry(force_cloud_trace: bool = False):
             processor = BatchSpanProcessor(exporter)
             provider.add_span_processor(processor)
             trace.set_tracer_provider(provider)
-
-            from opentelemetry import _logs as logs
-            from opentelemetry import metrics
-            from opentelemetry.exporter.cloud_logging import CloudLoggingExporter
-            from opentelemetry.exporter.cloud_monitoring import (
-                CloudMonitoringMetricsExporter,
-            )
-            from opentelemetry.sdk._logs import LoggerProvider
-            from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
-            from opentelemetry.sdk.metrics import MeterProvider
-            from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
-
-            # Set up logs
-            logger_provider = LoggerProvider(resource=provider.resource)
-            logger_provider.add_log_record_processor(
-                BatchLogRecordProcessor(CloudLoggingExporter())
-            )
-            logs.set_logger_provider(logger_provider)
-
-            # Set up metrics
-            reader = PeriodicExportingMetricReader(CloudMonitoringMetricsExporter())
-            meter_provider = MeterProvider(
-                metric_readers=[reader], resource=provider.resource
-            )
-            metrics.set_meter_provider(meter_provider)
 
         from opentelemetry.instrumentation.google_genai import (
             GoogleGenAiSdkInstrumentor,
@@ -254,10 +229,12 @@ def _setup_oidc_auth(requests_inst, httpx_inst):
     def requests_request_hook(span, request):
         _inject_auth_headers(request, request.url)
 
-    requests_inst.instrument(request_hook=requests_request_hook)
+    if not requests_inst.is_instrumented_by_opentelemetry:
+        requests_inst.instrument(request_hook=requests_request_hook)
 
     # For HTTPX (ADK uses this)
     def httpx_request_hook(span, request):
         _inject_auth_headers(request, str(request.url))
 
-    httpx_inst.instrument(request_hook=httpx_request_hook)
+    if not httpx_inst.is_instrumented_by_opentelemetry:
+        httpx_inst.instrument(request_hook=httpx_request_hook)

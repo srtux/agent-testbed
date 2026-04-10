@@ -6,11 +6,10 @@ import pytest
 # Add project root to path to ensure imports work
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from agents.BookingOrchestrator.booking_orchestrator.agent import calculate_trip_cost
-from agents.RootRouter.root_router.agent import extract_travel_intent
+from agents.BookingOrchestrator.booking_orchestrator.tools import calculate_trip_cost
+from agents.RootRouter.root_router.tools import extract_travel_intent
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "loyalty_tier, discount_pct",
     [
@@ -21,7 +20,7 @@ from agents.RootRouter.root_router.agent import extract_travel_intent
         ("Platinum", 0.0),  # Unknown tier should get 0 discount
     ],
 )
-async def test_calculate_trip_cost_loyalty(loyalty_tier, discount_pct):
+def test_calculate_trip_cost_loyalty(loyalty_tier, discount_pct):
     """Award-winning test for loyalty tier calculations."""
     flight = 100.0
     hotel = 50.0
@@ -33,7 +32,8 @@ async def test_calculate_trip_cost_loyalty(loyalty_tier, discount_pct):
     expected_discount = subtotal * discount_pct
     expected_total = subtotal - expected_discount
 
-    result = await calculate_trip_cost(flight, hotel, car, days, loyalty_tier)
+    import asyncio
+    result = asyncio.run(calculate_trip_cost(flight, hotel, car, days, loyalty_tier))
 
     assert result["subtotal"] == subtotal
     assert result["loyalty_discount_pct"] == discount_pct * 100
@@ -41,16 +41,15 @@ async def test_calculate_trip_cost_loyalty(loyalty_tier, discount_pct):
     assert result["total"] == round(expected_total, 2)
 
 
-@pytest.mark.asyncio
-async def test_calculate_trip_cost_zero_days():
+def test_calculate_trip_cost_zero_days():
     """Verifies behavior when days is zero (e.g., day trip with no hotel/car)."""
-    result = await calculate_trip_cost(100.0, 50.0, 30.0, 0, "Gold")
+    import asyncio
+    result = asyncio.run(calculate_trip_cost(100.0, 50.0, 30.0, 0, "Gold"))
     assert result["subtotal"] == 100.0  # Only flight cost
     assert result["discount_amount"] == 15.0  # 15% of 100
     assert result["total"] == 85.0
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "user_input, expected_dates",
     [
@@ -60,9 +59,10 @@ async def test_calculate_trip_cost_zero_days():
         ("Mixed formats 2026-05-12 and June 1", "2026-05-12, June 1"),
     ],
 )
-async def test_extract_travel_intent_dates(user_input, expected_dates):
+def test_extract_travel_intent_dates(user_input, expected_dates):
     """Tests date extraction heuristics in extract_travel_intent."""
-    result = await extract_travel_intent(user_input)
+    import asyncio
+    result = asyncio.run(extract_travel_intent(user_input))
     assert result["dates"] == expected_dates
     assert result["raw_input"] == user_input
     assert result["destination"] is None  # Currently hardcoded to None in the tool

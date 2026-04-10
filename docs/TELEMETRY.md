@@ -87,12 +87,11 @@ The call chain goes from an Agent invoking a tool on an MCP server (e.g., SSE co
 
 ---
 
-## 📊 Metrics and Logs (Cloud Run / GKE)
+## 📊 Scope of `setup_telemetry()`
 
-For Cloud Run and GKE services, `setup_telemetry()` also initializes OpenTelemetry for logs and metrics, exporting them to Google Cloud Logging and Cloud Monitoring.
+`setup_telemetry()` in this repo initializes **tracing** (TracerProvider + OTLP exporter) and library instrumentation. It intentionally does **not** configure OpenTelemetry log or metric exporters.
 
-*   **Logs**: Uses `CloudLoggingExporter` to route OpenTelemetry logs to Cloud Logging.
-*   **Metrics**: Uses `CloudMonitoringMetricsExporter` with a `PeriodicExportingMetricReader` to send metrics to Cloud Monitoring.
+This keeps telemetry setup aligned with the testbed's distributed trace verification goals and avoids unnecessary exporter dependencies for Cloud Monitoring/Cloud Logging.
 
 ---
 

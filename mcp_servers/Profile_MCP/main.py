@@ -9,7 +9,7 @@ logger = setup_logging()
 from mcp.server.fastmcp import Context, FastMCP
 from opentelemetry import trace
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-from opentelemetry.propagate import extract
+from testbed_utils.mcp_trace_context import extract_trace_context_from_mcp
 
 tracer = trace.get_tracer(__name__)
 
@@ -41,22 +41,7 @@ mcp = FastMCP(
 
 def _extract_trace_context(ctx: Context | None):
     """Helper to pull W3C traceparent from MCP _meta injected by clients."""
-    if ctx is None:
-        return {}
-    meta_obj = (
-        ctx.request_context.meta
-        if ctx.request_context and hasattr(ctx.request_context, "meta")
-        else None
-    )
-    if hasattr(meta_obj, "model_dump"):
-        meta_dict = meta_obj.model_dump()
-    elif hasattr(meta_obj, "dict"):
-        meta_dict = meta_obj.dict()
-    elif isinstance(meta_obj, dict):
-        meta_dict = meta_obj
-    else:
-        meta_dict = {}
-    return extract(meta_dict)
+    return extract_trace_context_from_mcp(ctx)
 
 
 @mcp.tool()

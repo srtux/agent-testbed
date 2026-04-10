@@ -2,10 +2,31 @@ import os
 import shutil
 import subprocess
 import time
+import asyncio
 
 import pytest
 
 from testbed_utils.services import LOCAL_SERVICES
+
+
+def pytest_configure(config):
+    """Register custom marks used by this suite."""
+    config.addinivalue_line("markers", "asyncio: mark test as asyncio-compatible")
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_pyfunc_call(pyfuncitem):
+    """Run `async def` tests without requiring pytest-asyncio."""
+    testfunction = pyfuncitem.obj
+    if asyncio.iscoroutinefunction(testfunction):
+        kwargs = {
+            arg: pyfuncitem.funcargs[arg]
+            for arg in pyfuncitem._fixtureinfo.argnames
+            if arg in pyfuncitem.funcargs
+        }
+        asyncio.run(testfunction(**kwargs))
+        return True
+    return None
 
 
 @pytest.fixture(scope="session", autouse=True)
