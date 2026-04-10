@@ -20,15 +20,15 @@ async def mock_generate_content_async(self, llm_request, stream=False) -> AsyncG
     logger.info(f"MOCK LLM prompt: {prompt[:100]}...")
 
     # Simple routing based on keywords in prompt
-    if "IntentClassifier" in str(llm_request) or "inspiration or planning" in prompt.lower():
+    if "m-12345" in prompt.lower() or "book" in prompt.lower() or "loyalty" in prompt.lower():
+        resp_text = "Mock Response: Your Itinerary has been successfully booked. Confirmation: CNF-MOCK-123."
+    elif "IntentClassifier" in str(llm_request) or "inspiration or planning" in prompt.lower():
         # The IntentClassifier expects a JSON response
         resp_text = '{"type": "planning", "destination": "SFO"}'
     elif "JFK" in prompt and "SFO" in prompt:
         resp_text = "Mock Response: Flight from JFK to SFO is available for $425. Hotel Cloud Suites available. Car SUV available."
     elif "weather" in prompt.lower():
         resp_text = "Mock Response: Weather in SFO is Sunny, 22C."
-    elif "book" in prompt.lower() or "loyalty" in prompt.lower():
-        resp_text = "Mock Response: Your itinerary has been successfully booked. Confirmation: CNF-MOCK-123."
     else:
         resp_text = "Mock Response: Default fake response from FakeLLM."
 

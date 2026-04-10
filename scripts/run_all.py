@@ -47,12 +47,13 @@ def main():
             env = os.environ.copy()
             # Override to false locally so setup_telemetry() initializes a provider
             env["GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY"] = "false"
+            env["USE_MOCK_LLM"] = "true"
             # Uvicorn reads .env natively via --env-file below.
 
             p = subprocess.Popen(
                 [
-                    "uv",
-                    "run",
+                    sys.executable,
+                    "-m",
                     "uvicorn",
                     "main:app",
                     "--port",

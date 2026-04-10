@@ -1,8 +1,8 @@
+import asyncio
 import os
 import shutil
 import subprocess
 import time
-import asyncio
 
 import pytest
 

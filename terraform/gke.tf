@@ -19,13 +19,39 @@ resource "kubernetes_deployment" "hotel_specialist" {
     template {
       metadata {
         labels = {
-          app = "gke-hotel-specialist"
+          app                                 = "gke-hotel-specialist"
+          "registry.gke.io/functional-type" = "AGENT"
+          "iam.gke.io/identity-type"      = "agent_identity"
+        }
+        annotations = {
+          "iam.gke.io/identity" = "spiffe://${var.project_id}.svc.id.goog/*"
         }
       }
       spec {
         service_account_name = "gke-agents-ksa"
+        
+        node_selector = {
+          "iam.gke.io/gke-metadata-server-enabled" = "true"
+        }
+
+        volume {
+          name = "workload-spiffe-credentials"
+          csi {
+            driver = "podcertificate.gke.io"
+            volume_attributes = {
+              signerName = "spiffe.gke.io/svid"
+            }
+          }
+        }
+
         container {
           name  = "hotel-specialist"
+          
+          volume_mount {
+            name       = "workload-spiffe-credentials"
+            mount_path = "/var/run/secrets/workload-spiffe-credentials"
+            read_only  = true
+          }
           image = var.hotel_specialist_image
 
           port {
@@ -140,13 +166,39 @@ resource "kubernetes_deployment" "car_rental_specialist" {
     template {
       metadata {
         labels = {
-          app = "gke-car-rental"
+          app                                 = "gke-car-rental"
+          "registry.gke.io/functional-type" = "AGENT"
+          "iam.gke.io/identity-type"      = "agent_identity"
+        }
+        annotations = {
+          "iam.gke.io/identity" = "spiffe://${var.project_id}.svc.id.goog/*"
         }
       }
       spec {
         service_account_name = "gke-agents-ksa"
+        
+        node_selector = {
+          "iam.gke.io/gke-metadata-server-enabled" = "true"
+        }
+
+        volume {
+          name = "workload-spiffe-credentials"
+          csi {
+            driver = "podcertificate.gke.io"
+            volume_attributes = {
+              signerName = "spiffe.gke.io/svid"
+            }
+          }
+        }
+
         container {
           name  = "car-rental-specialist"
+          
+          volume_mount {
+            name       = "workload-spiffe-credentials"
+            mount_path = "/var/run/secrets/workload-spiffe-credentials"
+            read_only  = true
+          }
           image = var.car_rental_specialist_image
 
           port {
@@ -253,7 +305,12 @@ resource "kubernetes_deployment" "inventory_mcp" {
     template {
       metadata {
         labels = {
-          app = "gke-inventory-mcp"
+          app                                 = "gke-inventory-mcp"
+          "registry.gke.io/functional-type" = "MCP_SERVER"
+          "iam.gke.io/identity-type"      = "agent_identity"
+        }
+        annotations = {
+          "iam.gke.io/identity" = "spiffe://agents.global.org-$${ORGNUM}.system.id.goog/*"
         }
       }
       spec {

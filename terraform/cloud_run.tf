@@ -9,6 +9,11 @@ resource "google_cloud_run_v2_service" "flight_specialist" {
     testbed = "my-agent-testbed"
   }
 
+  annotations = {
+    "apphub.cloud.google.com/functional-type" = "AGENT"
+    "apphub.cloud.google.com/identity-type"   = "AGENT"
+  }
+
   template {
     service_account = google_service_account.flight_specialist.email
 
@@ -81,6 +86,11 @@ resource "google_cloud_run_v2_service" "weather_specialist" {
     testbed = "my-agent-testbed"
   }
 
+  annotations = {
+    "apphub.cloud.google.com/functional-type" = "AGENT"
+    "apphub.cloud.google.com/identity-type"   = "AGENT"
+  }
+
   template {
     service_account = google_service_account.weather_specialist.email
 
@@ -151,6 +161,10 @@ resource "google_cloud_run_v2_service" "profile_mcp" {
 
   labels = {
     testbed = "my-agent-testbed"
+  }
+
+  annotations = {
+    "apphub.cloud.google.com/functional-type" = "MCP_SERVER"
   }
 
   template {

@@ -9,6 +9,7 @@ logger = setup_logging()
 from mcp.server.fastmcp import Context, FastMCP
 from opentelemetry import trace
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+
 from testbed_utils.mcp_trace_context import extract_trace_context_from_mcp
 
 tracer = trace.get_tracer(__name__)
