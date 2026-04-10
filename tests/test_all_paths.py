@@ -1,16 +1,19 @@
 import logging
 import os
+import importlib
+import importlib.util
 
 import pytest
 import vertexai
-from dotenv import load_dotenv
 from vertexai import agent_engines
 
 logging.basicConfig(level=logging.INFO)
 
-load_dotenv(
-    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
-)
+if importlib.util.find_spec("dotenv") is not None:
+    load_dotenv = importlib.import_module("dotenv").load_dotenv
+    load_dotenv(
+        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
+    )
 
 
 def test_all_paths_waterfall():

@@ -20,15 +20,17 @@ Run:
 
 import os
 import time
+import importlib
+import importlib.util
 from unittest.mock import MagicMock
 
 import httpx
 import pytest
-from dotenv import load_dotenv
-
-load_dotenv(
-    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
-)
+if importlib.util.find_spec("dotenv") is not None:
+    load_dotenv = importlib.import_module("dotenv").load_dotenv
+    load_dotenv(
+        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
+    )
 
 from testbed_utils.trace_verifier import (
     InMemoryTraceVerifier,

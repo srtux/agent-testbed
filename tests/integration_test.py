@@ -1,17 +1,30 @@
 import json
 import os
+import importlib
+import importlib.util
 
 import httpx
 import pytest
-from dotenv import load_dotenv
 
 # Ensure environment vars from .env are loaded (contains GOOGLE_CLOUD_PROJECT)
-load_dotenv(
-    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
-)
+if importlib.util.find_spec("dotenv") is not None:
+    load_dotenv = importlib.import_module("dotenv").load_dotenv
+    load_dotenv(
+        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
+    )
 
 # Setup the endpoint depending on whether this is local or remote
 ENDPOINT = os.environ.get("ROOT_ROUTER_ENDPOINT", "http://localhost:8080/chat")
+
+
+async def _endpoint_reachable(url: str) -> bool:
+    """Best-effort readiness check to avoid hard failures in sparse environments."""
+    try:
+        async with httpx.AsyncClient(timeout=2.0) as client:
+            response = await client.get(url.rsplit("/", 1)[0] + "/health")
+            return response.status_code < 500
+    except Exception:
+        return False
 
 
 @pytest.mark.asyncio
@@ -87,6 +100,9 @@ async def test_full_agent_orchestration():
         }
 
     else:
+        if "localhost" in ENDPOINT and not await _endpoint_reachable(ENDPOINT):
+            pytest.skip("Local RootRouter endpoint is not reachable; skipping integration test.")
+
         payload_1 = {"user_id": user_id, "prompt": prompt_text}
 
         async with httpx.AsyncClient(timeout=180.0) as client:
@@ -204,8 +220,10 @@ async def test_hotel_specialist_isolated():
 @pytest.mark.asyncio
 async def test_profile_mcp_isolated():
     """Tests the Profile_MCP server tool calling directly."""
-    from mcp.client.session import ClientSession
-    from mcp.client.sse import sse_client
+    if importlib.util.find_spec("mcp") is None:
+        pytest.skip("mcp package is not installed in this environment.")
+    ClientSession = importlib.import_module("mcp.client.session").ClientSession
+    sse_client = importlib.import_module("mcp.client.sse").sse_client
 
     url = os.environ.get("PROFILE_MCP_URL")
     if not url:

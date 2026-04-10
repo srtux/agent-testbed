@@ -1,3 +1,13 @@
+## Test Environment Prerequisites
+
+Before running tests locally, install workspace dependencies so optional runtime modules (e.g., `google-adk`, `mcp`, `python-dotenv`) are available:
+
+```bash
+uv sync --all-packages --dev
+```
+
+If you run `pytest` without syncing, collection may fail with `ModuleNotFoundError` for those packages.
+
 # Testing Guide
 
 This document describes how to execute local and remote integration tests for the **agent-testbed**, along with automated trace verification assertions.

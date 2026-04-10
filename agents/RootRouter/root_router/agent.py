@@ -8,6 +8,7 @@ from google.adk.tools.agent_tool import AgentTool
 from .prompt import ROOT_ROUTER_INSTRUCTION
 from .sub_agents.inspiration import inspiration_agent
 from .sub_agents.planning import planning_agent
+from .tools import extract_travel_intent
 
 logger = logging.getLogger(__name__)
 
@@ -76,32 +77,6 @@ async def fetch_profile(member_id: str) -> dict:
             "loyalty_tier": "Gold",
             "preferences": {"seat": "aisle"},
         }
-
-
-async def extract_travel_intent(user_input: str) -> dict:
-    """Analyzes the user's input to extract traveling fields (Destination, Dates).
-
-    Returns a dict with 'destination' and 'dates' keys extracted from the input.
-    The LLM calling this tool should provide the user_input verbatim so
-    downstream routing can determine inspiration vs. planning paths.
-    """
-    import re
-
-    # Simple heuristic extraction — the LLM can refine via IntentClassifier
-    destination = None
-    dates = None
-
-    # Look for date-like patterns (YYYY-MM-DD, Month Day, etc.)
-    date_pattern = re.findall(
-        r"\d{4}-\d{2}-\d{2}|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w*\s+\d{1,2}",
-        user_input,
-        re.IGNORECASE,
-    )
-    if date_pattern:
-        dates = ", ".join(date_pattern)
-
-    # Return what we found — LLM uses IntentClassifier for full classification
-    return {"destination": destination, "dates": dates, "raw_input": user_input}
 
 
 # --- Intent Classifier (Sub-Agent) ---
