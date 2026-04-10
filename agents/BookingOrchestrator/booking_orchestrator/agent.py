@@ -18,9 +18,9 @@ from .sub_agents.validator import itinerary_validator
 
 logger = logging.getLogger(__name__)
 
-from testbed_utils.telemetry import setup_authenticated_transport
-
-setup_authenticated_transport()
+# Note: setup_authenticated_transport() is already called in main.py at module
+# load time, which installs the HTTPX instrumentor's OIDC request hook. No
+# need to call it again here.
 
 DEFAULT_PRO_MODEL = os.environ.get("PRO_MODEL", "gemini-2.5-pro")
 

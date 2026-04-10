@@ -74,6 +74,7 @@ async def consult_car_rental(user_id: str, dates: str, destination: str) -> dict
     async with httpx.AsyncClient() as client:
         payload = {"user_id": user_id, "dates": dates, "destination": destination}
         res = await client.post(car_rental_url, json=payload, timeout=60.0)
+        res.raise_for_status()
         return res.json()
 
 

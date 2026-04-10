@@ -81,6 +81,7 @@ async def delegate_to_booking_orchestrator(
     async with httpx.AsyncClient() as client:
         payload = {"user_id": user_id, "itinerary_details": itinerary_details}
         res = await client.post(booking_orch_url, json=payload, timeout=60.0)
+        res.raise_for_status()
         return res.json()
 
 
