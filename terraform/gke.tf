@@ -1,6 +1,10 @@
 # --- Hotel Specialist ---
 
 resource "kubernetes_deployment" "hotel_specialist" {
+  timeouts {
+    create = "20m"
+    update = "20m"
+  }
   metadata {
     name = "gke-hotel-specialist"
     labels = {
@@ -34,24 +38,12 @@ resource "kubernetes_deployment" "hotel_specialist" {
           "iam.gke.io/gke-metadata-server-enabled" = "true"
         }
 
-        volume {
-          name = "workload-spiffe-credentials"
-          csi {
-            driver = "podcertificate.gke.io"
-            volume_attributes = {
-              signerName = "spiffe.gke.io/svid"
-            }
-          }
-        }
+
 
         container {
           name  = "hotel-specialist"
           
-          volume_mount {
-            name       = "workload-spiffe-credentials"
-            mount_path = "/var/run/secrets/workload-spiffe-credentials"
-            read_only  = true
-          }
+
           image = var.hotel_specialist_image
 
           port {
@@ -148,6 +140,10 @@ resource "kubernetes_service" "hotel_specialist" {
 # --- Car Rental Specialist ---
 
 resource "kubernetes_deployment" "car_rental_specialist" {
+  timeouts {
+    create = "20m"
+    update = "20m"
+  }
   metadata {
     name = "gke-car-rental"
     labels = {
@@ -181,24 +177,12 @@ resource "kubernetes_deployment" "car_rental_specialist" {
           "iam.gke.io/gke-metadata-server-enabled" = "true"
         }
 
-        volume {
-          name = "workload-spiffe-credentials"
-          csi {
-            driver = "podcertificate.gke.io"
-            volume_attributes = {
-              signerName = "spiffe.gke.io/svid"
-            }
-          }
-        }
+
 
         container {
           name  = "car-rental-specialist"
           
-          volume_mount {
-            name       = "workload-spiffe-credentials"
-            mount_path = "/var/run/secrets/workload-spiffe-credentials"
-            read_only  = true
-          }
+
           image = var.car_rental_specialist_image
 
           port {
@@ -287,6 +271,10 @@ resource "kubernetes_service" "car_rental_specialist" {
 # --- Inventory MCP ---
 
 resource "kubernetes_deployment" "inventory_mcp" {
+  timeouts {
+    create = "20m"
+    update = "20m"
+  }
   metadata {
     name = "gke-inventory-mcp"
     labels = {
