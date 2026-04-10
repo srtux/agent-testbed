@@ -536,22 +536,10 @@ def main():
         )
 
         print("🚀 Applying Terraform (with parallelism=20)...")
-        apphub_path = Path(terraform_dir) / "apphub.tf"
-        apphub_disabled = Path(terraform_dir) / "apphub.tf.disabled"
-
-        if apphub_path.exists():
-            print("⏳ Temporarily disabling apphub.tf for first apply...")
-            os.rename(apphub_path, apphub_disabled)
-
-        try:
-            run_command(
-                ["terraform", "apply", "-auto-approve", "-parallelism=20"] + tf_vars,
-                cwd=terraform_dir,
-            )
-        finally:
-            if apphub_disabled.exists():
-                print("🔄 Restoring apphub.tf...")
-                os.rename(apphub_disabled, apphub_path)
+        run_command(
+            ["terraform", "apply", "-auto-approve", "-parallelism=20"] + tf_vars,
+            cwd=terraform_dir,
+        )
 
         # Read and display service URLs from Terraform outputs
         service_url_names = [

@@ -10,8 +10,8 @@ resource "google_cloud_run_v2_service" "flight_specialist" {
   }
 
   annotations = {
-    "apphub.cloud.google.com/functional-type" = "AGENT"
-    "apphub.cloud.google.com/identity-type"   = "AGENT"
+    "apphub.cloud.google.com/functional-type" = "agent"
+    "apphub.cloud.google.com/identity-type"   = "agent"
   }
 
   template {
@@ -87,8 +87,8 @@ resource "google_cloud_run_v2_service" "weather_specialist" {
   }
 
   annotations = {
-    "apphub.cloud.google.com/functional-type" = "AGENT"
-    "apphub.cloud.google.com/identity-type"   = "AGENT"
+    "apphub.cloud.google.com/functional-type" = "agent"
+    "apphub.cloud.google.com/identity-type"   = "agent"
   }
 
   template {
@@ -164,7 +164,7 @@ resource "google_cloud_run_v2_service" "profile_mcp" {
   }
 
   annotations = {
-    "apphub.cloud.google.com/functional-type" = "MCP_SERVER"
+    "apphub.cloud.google.com/functional-type" = "mcp-server"
   }
 
   template {
