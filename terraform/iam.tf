@@ -129,15 +129,33 @@ resource "google_project_iam_member" "flight_specialist_trace_agent" {
   member  = "serviceAccount:${google_service_account.flight_specialist.email}"
 }
 
+resource "google_project_iam_member" "flight_specialist_metric_writer" {
+  project = var.project_id
+  role    = "roles/monitoring.metricWriter"
+  member  = "serviceAccount:${google_service_account.flight_specialist.email}"
+}
+
 resource "google_project_iam_member" "weather_specialist_trace_agent" {
   project = var.project_id
   role    = "roles/cloudtrace.agent"
   member  = "serviceAccount:${google_service_account.weather_specialist.email}"
 }
 
+resource "google_project_iam_member" "weather_specialist_metric_writer" {
+  project = var.project_id
+  role    = "roles/monitoring.metricWriter"
+  member  = "serviceAccount:${google_service_account.weather_specialist.email}"
+}
+
 resource "google_project_iam_member" "profile_mcp_trace_agent" {
   project = var.project_id
   role    = "roles/cloudtrace.agent"
+  member  = "serviceAccount:${google_service_account.profile_mcp.email}"
+}
+
+resource "google_project_iam_member" "profile_mcp_metric_writer" {
+  project = var.project_id
+  role    = "roles/monitoring.metricWriter"
   member  = "serviceAccount:${google_service_account.profile_mcp.email}"
 }
 
@@ -157,6 +175,12 @@ resource "google_project_iam_member" "inventory_mcp_trace_agent" {
   member  = "serviceAccount:${google_service_account.inventory_mcp_gsa.email}"
 }
 
+resource "google_project_iam_member" "inventory_mcp_metric_writer" {
+  project = var.project_id
+  role    = "roles/monitoring.metricWriter"
+  member  = "serviceAccount:${google_service_account.inventory_mcp_gsa.email}"
+}
+
 resource "google_project_iam_member" "inventory_mcp_ai_user" {
   project = var.project_id
   role    = "roles/aiplatform.user"
@@ -173,6 +197,12 @@ resource "google_service_account_iam_member" "inventory_mcp_workload_identity" {
 resource "google_project_iam_member" "gke_agents_trace_agent" {
   project = var.project_id
   role    = "roles/cloudtrace.agent"
+  member  = "serviceAccount:${google_service_account.gke_agents_gsa.email}"
+}
+
+resource "google_project_iam_member" "gke_agents_metric_writer" {
+  project = var.project_id
+  role    = "roles/monitoring.metricWriter"
   member  = "serviceAccount:${google_service_account.gke_agents_gsa.email}"
 }
 

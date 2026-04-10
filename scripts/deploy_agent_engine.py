@@ -108,7 +108,13 @@ def create_agent(config, custom_domain, project_id, location, bucket, service_ur
 
     class MyAdkApp(AdkApp):
         def query(self, *args, **kwargs):
-            return super().query(*args, **kwargs)
+            response_text = ""
+            for event in self.stream_query(*args, **kwargs):
+                if hasattr(event, "content") and event.content:
+                    for part in event.content.parts:
+                        if part.text:
+                            response_text += part.text
+            return response_text
 
         def stream_query(self, *args, **kwargs):
             yield from super().stream_query(*args, **kwargs)

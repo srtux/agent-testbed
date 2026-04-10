@@ -5,10 +5,6 @@ import os
 setup_authenticated_transport()
 
 # Agent Engine platform handles telemetry in production.
-# For local dev / verification, we initialize it manually if not explicitly disabled/enabled by platform.
-if os.environ.get("GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY", "false").lower() != "true":
-    from testbed_utils.telemetry import setup_telemetry
-    setup_telemetry()
 
 logger = setup_logging()
 
