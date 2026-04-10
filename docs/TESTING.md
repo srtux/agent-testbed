@@ -29,7 +29,7 @@ Run inside another window addressing bounds:
 uv run test-local
 ```
 This runs:
-1.  **Unit Tests**: `pytest tests/test_mcp_meta.py` + `test_trace_verification.py`.
+1.  **Unit Tests**: `pytest tests/test_unit_tools.py tests/test_mcp_meta.py tests/test_trace_verification.py -k local`.
 2.  **Integration Chain**: `pytest tests/integration_test.py` targeting `http://localhost:8080/chat` strictly.
 
 ---

@@ -39,8 +39,10 @@ mcp = FastMCP(
 )
 
 
-def _extract_trace_context(ctx: Context):
+def _extract_trace_context(ctx: Context | None):
     """Helper to pull W3C traceparent from MCP _meta injected by clients."""
+    if ctx is None:
+        return {}
     meta_obj = (
         ctx.request_context.meta
         if ctx.request_context and hasattr(ctx.request_context, "meta")

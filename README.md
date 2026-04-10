@@ -18,9 +18,10 @@ For detailed guides answering specific setups, refer to the following manuals:
 | **[Model Context Protocol (MCP)](docs/MCP.md)** | Generic `_meta` trace propagation hooks crossing multiplexed SSE triggers. |
 | **[Developer Expansion Guide](docs/DEVELOPMENT_GUIDE.md)** | Cookbook recipes explaining how to add new agents/tools following compliant patterns. |
 | **[Load & Traffic Generator](docs/TRAFFIC_GENERATOR.md)** | Simulating continuous 2-turn conversations triggering full cascades. |
-
 | **[App Hub Setup](docs/APPHUB.md)** | Google Cloud App Hub registration and verification guide. |
 | **[Bastion Tunneling](docs/TUNNELING.md)** | Diagnostic mechanics establishing secure IAP tunnels for local endpoints lookup. |
+| **[Critical Telemetry Rules](AGENTS.md)** | Hard-won learnings on OpenTelemetry, Agent Engine, OIDC, and MCP trace propagation. |
+| **[Skills Learned](docs/SKILLS_LEARNED.md)** | Technical patterns and solutions discovered during development. |
 
 
 
