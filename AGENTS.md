@@ -134,13 +134,19 @@ When adding a new agent to this testbed:
 ```
 opentelemetry-api>=1.38.0
 opentelemetry-sdk>=1.38.0
-opentelemetry-exporter-otlp-proto-grpc          # OTLP exporter for telemetry.googleapis.com
-opentelemetry-instrumentation-fastapi>=0.59b0    # Inbound trace extraction
+opentelemetry-exporter-otlp-proto-grpc            # OTLP exporter for telemetry.googleapis.com (traces)
+opentelemetry-exporter-gcp-logging>=1.11.0a0      # Cloud Logging exporter (OTel logs pipeline)
+opentelemetry-exporter-gcp-monitoring>=1.11.0a0   # Cloud Monitoring exporter (OTel metrics pipeline)
+opentelemetry-instrumentation-fastapi>=0.59b0     # Inbound trace extraction
 opentelemetry-instrumentation-google-genai>=0.7b0 # GenAI/Gemini span capture
-opentelemetry-instrumentation-httpx>=0.59b0      # Outbound trace injection (ADK uses httpx)
-opentelemetry-instrumentation-requests>=0.59b0   # Outbound trace injection (traffic generator)
-google-auth                                       # ADC for OTLP exporter auth
-grpcio                                            # gRPC channel credentials
+opentelemetry-instrumentation-httpx>=0.59b0       # Outbound trace injection (ADK uses httpx)
+opentelemetry-instrumentation-requests>=0.59b0    # Outbound trace injection (traffic generator)
+google-auth                                        # ADC for OTLP exporter auth
+grpcio                                             # gRPC channel credentials
 ```
 
-**Do NOT add**: `opentelemetry-exporter-gcp-trace` (deprecated), `opentelemetry-exporter-gcp-monitoring` (not needed for traces).
+**Do NOT add**: `opentelemetry-exporter-gcp-trace` (deprecated — use the OTLP exporter above for traces instead).
+
+Note: the `gcp-logging` and `gcp-monitoring` exporters are intentionally used
+for the logs and metrics pipelines only. Traces continue to flow through
+`opentelemetry-exporter-otlp-proto-grpc` to `telemetry.googleapis.com`.

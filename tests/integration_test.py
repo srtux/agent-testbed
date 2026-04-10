@@ -1,5 +1,6 @@
 import json
 import os
+from datetime import date, timedelta
 
 import httpx
 import pytest
@@ -14,6 +15,16 @@ load_dotenv(
 ENDPOINT = os.environ.get("ROOT_ROUTER_ENDPOINT", "http://localhost:8080/chat")
 
 
+def _future_travel_dates():
+    """Return (outbound, inbound) as YYYY-MM-DD strings roughly a month ahead.
+
+    Using dynamic dates prevents tests from decaying after a hardcoded date passes.
+    """
+    outbound = date.today() + timedelta(days=30)
+    inbound = outbound + timedelta(days=3)
+    return outbound.isoformat(), inbound.isoformat()
+
+
 @pytest.mark.asyncio
 async def test_full_agent_orchestration():
     """
@@ -22,7 +33,11 @@ async def test_full_agent_orchestration():
     """
     print(f"\nSending payload to {ENDPOINT}")
 
-    prompt_text = "I need to travel to SFO from JFK for a convention on May 12, 2026 and return on May 15, 2026. Can you build the entire itinerary?"
+    outbound, inbound = _future_travel_dates()
+    prompt_text = (
+        f"I need to travel to SFO from JFK for a convention on {outbound} "
+        f"and return on {inbound}. Can you build the entire itinerary?"
+    )
     user_id = "integration_tester_001"
 
     if ENDPOINT.startswith("projects/"):
@@ -184,9 +199,11 @@ async def test_hotel_specialist_isolated():
     if "localhost" in url or "10.128." in url:
         pytest.skip("Skipping isolated test due to local VPC network boundaries.")
 
+    # HotelSpecialist.main.HotelRequest schema: {user_id, destination, dates}
     payload = {
         "user_id": "test_user_isolated",
-        "prompt": "I need a luxury hotel in SFO",
+        "destination": "SFO",
+        "dates": "next week",
     }
 
     print(f"\nEvaluating isolated call to HotelSpecialist: {url}")

@@ -11,9 +11,10 @@ from .sub_agents.planning import planning_agent
 
 logger = logging.getLogger(__name__)
 
-from testbed_utils.telemetry import setup_authenticated_transport
-
-setup_authenticated_transport()
+# Note: setup_authenticated_transport() is already called in main.py at module
+# load time, which installs the HTTPX instrumentor's OIDC request hook. That
+# hook transparently injects the Authorization + Host headers on outbound
+# service-to-service calls. We do NOT call it again here.
 
 DEFAULT_FLASH_MODEL = os.environ.get("FLASH_MODEL", "gemini-2.5-flash")
 DEFAULT_PRO_MODEL = os.environ.get("PRO_MODEL", "gemini-2.5-pro")

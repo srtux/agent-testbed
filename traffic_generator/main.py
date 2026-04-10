@@ -13,7 +13,7 @@ from google.cloud import aiplatform
 from vertexai.preview.reasoning_engines import ReasoningEngine
 
 
-def is_otel_initialized() -> bool:
+def _is_otel_initialized() -> bool:
     try:
         from opentelemetry import trace
         from opentelemetry.sdk.trace import TracerProvider
@@ -23,23 +23,59 @@ def is_otel_initialized() -> bool:
         return False
 
 
+def _create_authenticated_exporter():
+    """Create an OTLPSpanExporter with Google ADC credentials when targeting
+    telemetry.googleapis.com. See AGENTS.md for rationale.
+    """
+    from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+
+    endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+    if "telemetry.googleapis.com" not in endpoint:
+        return OTLPSpanExporter()
+
+    try:
+        import google.auth.transport.grpc
+        import google.auth.transport.requests
+        import grpc
+
+        credentials, _ = google.auth.default()
+        auth_req = google.auth.transport.requests.Request()
+        auth_metadata_plugin = google.auth.transport.grpc.AuthMetadataPlugin(
+            credentials=credentials, request=auth_req
+        )
+        channel_creds = grpc.composite_channel_credentials(
+            grpc.ssl_channel_credentials(),
+            grpc.metadata_call_credentials(auth_metadata_plugin),
+        )
+        return OTLPSpanExporter(
+            endpoint="telemetry.googleapis.com:443",
+            credentials=channel_creds,
+        )
+    except Exception as e:
+        print(f"Warning: failed to build authenticated OTLP exporter: {e}")
+        return OTLPSpanExporter()
+
+
 def setup_telemetry():
-    if is_otel_initialized():
+    if _is_otel_initialized():
         return
     os.environ["OTEL_SEMCONV_STABILITY_OPT_IN"] = "gen_ai_latest_experimental"
 
     try:
         from opentelemetry import trace
-        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
-            OTLPSpanExporter,
-        )
         from opentelemetry.instrumentation.requests import RequestsInstrumentor
+        from opentelemetry.sdk.resources import Resource
         from opentelemetry.sdk.trace import TracerProvider
         from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
-        provider = TracerProvider()
-        processor = BatchSpanProcessor(OTLPSpanExporter())
-        provider.add_span_processor(processor)
+        resource = Resource(
+            attributes={
+                "service.name": os.environ.get("OTEL_SERVICE_NAME", "traffic-generator"),
+                "gcp.project_id": os.environ.get("GOOGLE_CLOUD_PROJECT", ""),
+            }
+        )
+        provider = TracerProvider(resource=resource)
+        provider.add_span_processor(BatchSpanProcessor(_create_authenticated_exporter()))
         trace.set_tracer_provider(provider)
 
         # Critical: Instrument requests so our call to RootRouter includes traceparent

@@ -155,9 +155,24 @@ def setup_telemetry(force_cloud_trace: bool = False):
         )
 
 
+def _load_audience_map():
+    """Parses URL_AUDIENCE_MAP env var into a dict. Returns {} on any failure."""
+    import ast
+
+    map_str = os.environ.get("URL_AUDIENCE_MAP", "")
+    if not map_str:
+        return {}
+    try:
+        # Handle potential single-quote dict string from env
+        parsed = ast.literal_eval(map_str)
+        return parsed if isinstance(parsed, dict) else {}
+    except (ValueError, SyntaxError):
+        return {}
+
+
 def _needs_oidc_auth(url):
     """Determines if a URL requires OIDC token injection for service-to-service auth."""
-    logger.warning(f"Checking if {url} needs OIDC auth")
+    logger.debug(f"Checking if {url} needs OIDC auth")
     if ".a.run.app" in url or ".cloudfunctions.net" in url:
         return True
     custom_domain = os.environ.get("CUSTOM_DOMAIN", "")
@@ -165,36 +180,23 @@ def _needs_oidc_auth(url):
         return True
 
     # Check audience map for IP/Internal URLs
-    import ast
-
-    try:
-        map_str = os.environ.get("URL_AUDIENCE_MAP", "{}")
-        if map_str:
-            # Handle potential single-quote dict string from env
-            audience_map = ast.literal_eval(map_str)
-            if any(url.startswith(k) for k in audience_map.keys()):
-                return True
-    except Exception:
-        pass
+    audience_map = _load_audience_map()
+    if any(url.startswith(k) for k in audience_map):
+        return True
 
     return False
 
 
 def _get_audience(url):
     """Resolves the OIDC audience for a given URL."""
-    import ast
-
-    try:
-        map_str = os.environ.get("URL_AUDIENCE_MAP", "{}")
-        if map_str:
-            audience_map = ast.literal_eval(map_str)
-        for k, v in audience_map.items():
-            if url.startswith(k):
-                return v
-    except Exception:
-        pass
+    audience_map = _load_audience_map()
+    for k, v in audience_map.items():
+        if url.startswith(k):
+            return v
     # Fallback to root URL audience
     parts = url.split("/")
+    if len(parts) < 3:
+        return url
     return f"{parts[0]}//{parts[2]}"
 
 
@@ -219,61 +221,43 @@ def _setup_oidc_auth(requests_inst, httpx_inst):
         if cached and cached[1] > time.monotonic():
             return cached[0]
         try:
-            logger.warning(f"Fetching OIDC token for audience: {audience}")
+            logger.debug(f"Fetching OIDC token for audience: {audience}")
             auth_req = google.auth.transport.requests.Request()
             token = id_token.fetch_id_token(auth_req, audience)
             token_cache[audience] = (token, time.monotonic() + _TOKEN_TTL_SECONDS)
-            logger.warning(f"Successfully fetched OIDC token for {audience}")
             return token
         except Exception:
             logger.exception(f"Failed to fetch OIDC token for {audience}")
             return None
 
+    def _inject_auth_headers(request, url):
+        """Inject OIDC bearer token and rewrite Host header for PSC routing."""
+        if not _needs_oidc_auth(url):
+            return
+        audience = _get_audience(url)
+        logger.debug(f"Injecting OIDC auth for {url} (audience={audience})")
+        token = get_oidc_token(audience)
+        if not token:
+            logger.warning(f"No OIDC token available for {url}")
+            return
+        request.headers["Authorization"] = f"Bearer {token}"
+        # Extract host from audience URL for Cloud Run routing via PSC
+        if audience and ("https://" in audience or "http://" in audience):
+            host = (
+                audience.replace("https://", "")
+                .replace("http://", "")
+                .split("/")[0]
+            )
+            request.headers["Host"] = host
+
     # For Requests — inject OIDC tokens via request_hook (used by traffic generator)
     def requests_request_hook(span, request):
-        url = request.url
-        if _needs_oidc_auth(url):
-            audience = _get_audience(url)
-            logger.info(f"URL {url} needs OIDC auth, audience: {audience}")
-            token = get_oidc_token(audience)
-            if token:
-                logger.info(f"Injecting OIDC token for {url}")
-                request.headers["Authorization"] = f"Bearer {token}"
-                # Extract host from audience URL for Cloud Run routing via PSC
-                if audience and ("https://" in audience or "http://" in audience):
-                    host = (
-                        audience.replace("https://", "")
-                        .replace("http://", "")
-                        .split("/")[0]
-                    )
-                    request.headers["Host"] = host
-                    logger.info(f"Set Host header to {host} for PSC routing")
-            else:
-                logger.warning(f"No OIDC token available for {url}")
+        _inject_auth_headers(request, request.url)
 
     requests_inst.instrument(request_hook=requests_request_hook)
 
     # For HTTPX (ADK uses this)
     def httpx_request_hook(span, request):
-        url = str(request.url)
-        logger.warning(f"Intercepted HTTPX request to: {url}")
-        if _needs_oidc_auth(url):
-            audience = _get_audience(url)
-            logger.warning(f"URL {url} needs OIDC auth, audience: {audience}")
-            token = get_oidc_token(audience)
-            if token:
-                logger.warning(f"Injecting OIDC token for {url}")
-                request.headers["Authorization"] = f"Bearer {token}"
-                # Extract host from audience URL for Cloud Run routing via PSC
-                if audience and ("https://" in audience or "http://" in audience):
-                    host = (
-                        audience.replace("https://", "")
-                        .replace("http://", "")
-                        .split("/")[0]
-                    )
-                    request.headers["Host"] = host
-                    logger.warning(f"Set Host header to {host} for PSC routing")
-            else:
-                logger.warning(f"No OIDC token available for {url}")
+        _inject_auth_headers(request, str(request.url))
 
     httpx_inst.instrument(request_hook=httpx_request_hook)

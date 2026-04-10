@@ -95,7 +95,7 @@ async def commit_booking(
     flight_id: str = "",
     hotel_id: str = "",
     car_id: str = "",
-    ctx: Context = None,
+    ctx: Context | None = None,
 ) -> dict:
     """Mock database command for committing bookings."""
     with tracer.start_as_current_span(

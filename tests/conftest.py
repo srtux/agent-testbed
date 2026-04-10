@@ -1,8 +1,11 @@
 import os
+import shutil
 import subprocess
 import time
 
 import pytest
+
+from testbed_utils.services import LOCAL_SERVICES
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -15,47 +18,31 @@ def start_local_services():
         yield
         return
 
-    print("🚀 Starting all testbed services locally for testing...")
+    print("Starting all testbed services locally for testing...")
     root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
-    services = [
-        {"name": "RootRouter", "path": "agents/RootRouter", "port": 8080},
-        {
-            "name": "BookingOrchestrator",
-            "path": "agents/BookingOrchestrator",
-            "port": 8081,
-        },
-        {"name": "FlightSpecialist", "path": "agents/FlightSpecialist", "port": 8082},
-        {"name": "WeatherSpecialist", "path": "agents/WeatherSpecialist", "port": 8083},
-        {"name": "HotelSpecialist", "path": "agents/HotelSpecialist", "port": 8084},
-        {
-            "name": "CarRentalSpecialist",
-            "path": "agents/CarRentalSpecialist",
-            "port": 8085,
-        },
-        {"name": "Profile_MCP", "path": "mcp_servers/Profile_MCP", "port": 8090},
-        {"name": "Inventory_MCP", "path": "mcp_servers/Inventory_MCP", "port": 8091},
-    ]
 
     processes = []
     log_files = []
 
     try:
-        for svc in services:
-            svc_dir = os.path.join(root_dir, svc["path"])
+        for svc in LOCAL_SERVICES:
+            svc_dir = os.path.join(root_dir, svc.path)
             if not os.path.exists(svc_dir):
-                print(f"⚠️ Warning: Directory not found for {svc['name']} at {svc_dir}")
+                print(f"Warning: Directory not found for {svc.name} at {svc_dir}")
                 continue
 
-            # Check if port in use
-            check = subprocess.run(
-                f"lsof -ti:{svc['port']}", shell=True, capture_output=True, text=True
-            )
-            if check.stdout.strip():
-                print(
-                    f"Port {svc['port']} already in use, skipping startup for {svc['name']}."
+            # Skip startup if the port is already bound
+            if shutil.which("lsof"):
+                check = subprocess.run(
+                    ["lsof", "-ti", f":{svc.port}"],
+                    capture_output=True,
+                    text=True,
                 )
-                continue
+                if check.stdout.strip():
+                    print(
+                        f"Port {svc.port} already in use, skipping startup for {svc.name}."
+                    )
+                    continue
 
             env = os.environ.copy()
             # Set to true to disable manual trace setup in setup_telemetry() for local tests,
@@ -69,7 +56,7 @@ def start_local_services():
             # Create log file for the service
             log_dir = os.path.join(root_dir, "tests", "logs")
             os.makedirs(log_dir, exist_ok=True)
-            log_file = open(os.path.join(log_dir, f"{svc['name']}.log"), "w")
+            log_file = open(os.path.join(log_dir, f"{svc.name}.log"), "w")
             log_files.append(log_file)
 
             # Start service
@@ -80,7 +67,7 @@ def start_local_services():
                     "uvicorn",
                     "main:app",
                     "--port",
-                    str(svc["port"]),
+                    str(svc.port),
                     "--env-file",
                     "../../.env",
                 ],
@@ -92,12 +79,12 @@ def start_local_services():
             processes.append(p)
             time.sleep(0.5)  # Give it time to bind
 
-        print("✅ All services started.")
+        print("All services started.")
 
         yield  # Run tests
 
     finally:
-        print("\n🛑 Shutting down all services...")
+        print("\nShutting down all services...")
         for p in processes:
             p.terminate()
         for p in processes:
@@ -108,6 +95,9 @@ def start_local_services():
 
         # Close log files
         for f in log_files:
-            f.close()
+            try:
+                f.flush()
+            finally:
+                f.close()
 
         print("Done.")

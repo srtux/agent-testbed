@@ -13,10 +13,13 @@ Run in a background terminal to boot fully locally:
 ```bash
 uv run run-all
 ```
-*   **Orchestration**: Operates `uvicorn` loops binding port endpoints positionally maps:
+*   **Orchestration**: Runs each service under `uvicorn` on its canonical port. The full set of local services:
     *   RootRouter (Agent Engine emulation): `8080`
-    *   BookingOrchestrator: `8081`
+    *   BookingOrchestrator (Agent Engine emulation): `8081`
     *   FlightSpecialist (Cloud Run emulation): `8082`
+    *   WeatherSpecialist (Cloud Run emulation): `8083`
+    *   HotelSpecialist (GKE emulation): `8084`
+    *   CarRentalSpecialist (GKE emulation): `8085`
     *   Profile_MCP (Cloud Run emulation): `8090`
     *   Inventory_MCP (GKE emulation): `8091`
 
