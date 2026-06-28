@@ -5,7 +5,8 @@ description = "Agent Testbed"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.135.1",
-    "google-adk==2.0.0a2",
+    "google-adk==2.0.0a3",
+    "keyrings.google-artifactregistry-auth>=1.1.2",
     "mcp>=1.26.0",
     "opentelemetry-api>=1.38.0",
     "opentelemetry-exporter-otlp-proto-grpc",
@@ -41,6 +42,7 @@ build-backend = "hatchling.build"
 
 [tool.uv]
 package = true
+override-dependencies = ["aiohttp>=3.10.0"]
 
 [tool.uv.workspace]
 members = [

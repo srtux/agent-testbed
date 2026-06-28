@@ -46,7 +46,7 @@ To make requests in scripts, install the SOCKS extension:
 
 ```bash
 # For HTTPX (ADK uses httpx)
-pip install "httpx[socks]"
+uv add "httpx[socks]"
 ```
 
 Then use the proxy in your client setup:

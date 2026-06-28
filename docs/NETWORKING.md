@@ -108,7 +108,7 @@ gcloud compute ssh testbed-bastion \
 
 ### Routing Traffic
 *   **Curl**: `curl --proxy socks5h://localhost:8888 https://[internal-url]`
-*   **Python (`httpx`)**: Requires `pip install "httpx[socks]"`. Add proxy configuration:
+*   **Python (`httpx`)**: Requires `uv add "httpx[socks]"`. Add proxy configuration:
     ```python
     proxies = {"all://": "socks5://localhost:8888"}
     ```
