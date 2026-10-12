@@ -17,11 +17,13 @@ from .sub_agents.payment import payment_agent
 from .sub_agents.validator import itinerary_validator
 from .tools import calculate_trip_cost, format_itinerary
 
+from testbed_utils.telemetry import setup_authenticated_transport
+
 logger = logging.getLogger(__name__)
 
-# Note: setup_authenticated_transport() is already called in main.py at module
-# load time, which installs the HTTPX instrumentor's OIDC request hook. No
-# need to call it again here.
+# Ensure OIDC request hooks and ADK app_name validation patch are installed
+# both in local FastAPI mode and when unpickled inside Vertex AI Reasoning Engine.
+setup_authenticated_transport()
 
 DEFAULT_PRO_MODEL = os.environ.get("PRO_MODEL", "gemini-2.5-pro")
 

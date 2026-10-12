@@ -60,8 +60,30 @@ def _create_authenticated_exporter(OTLPSpanExporter):
         return OTLPSpanExporter()
 
 
+def _patch_adk_app_name_validation():
+    """Relaxes google-adk 2.0+ validate_app_name() to allow numeric Reasoning Engine IDs."""
+    try:
+        import google.adk.apps.app as _adk_app_mod
+
+        _orig_validate = getattr(_adk_app_mod, "validate_app_name", None)
+        if _orig_validate and not getattr(
+            _orig_validate, "_allows_numeric_engine_id", False
+        ):
+
+            def _allow_numeric_engine_id(name: str) -> None:
+                if isinstance(name, str) and name.isdigit():
+                    return
+                return _orig_validate(name)
+
+            _allow_numeric_engine_id._allows_numeric_engine_id = True
+            _adk_app_mod.validate_app_name = _allow_numeric_engine_id
+    except Exception:
+        pass
+
+
 def setup_authenticated_transport():
     """Hooks into Requests and HTTPX to inject OIDC tokens for service-to-service auth."""
+    _patch_adk_app_name_validation()
     from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
     from opentelemetry.instrumentation.requests import RequestsInstrumentor
 
@@ -97,7 +119,17 @@ def setup_telemetry(force_cloud_trace: bool = False):
             )
             from opentelemetry.sdk.resources import Resource
 
-            project_id = os.environ.get("GOOGLE_CLOUD_PROJECT", "")
+            project_id = os.environ.get(
+                "GOOGLE_CLOUD_PROJECT", os.environ.get("PROJECT_ID", "")
+            )
+            if not project_id:
+                try:
+                    import google.auth
+
+                    _, detected_project = google.auth.default()
+                    project_id = detected_project or ""
+                except Exception:
+                    project_id = ""
 
             provider = TracerProvider(
                 resource=Resource(
@@ -131,18 +163,117 @@ def setup_telemetry(force_cloud_trace: bool = False):
 
 
 def _load_audience_map():
-    """Parses URL_AUDIENCE_MAP env var into a dict. Returns {} on any failure."""
+    """Parses URL_AUDIENCE_MAP env var into a dict and merges *_URL / *_AUDIENCE env pairs."""
     import ast
+    import json
 
+    audience_map = {}
     map_str = os.environ.get("URL_AUDIENCE_MAP", "")
-    if not map_str:
-        return {}
-    try:
-        # Handle potential single-quote dict string from env
-        parsed = ast.literal_eval(map_str)
-        return parsed if isinstance(parsed, dict) else {}
-    except (ValueError, SyntaxError):
-        return {}
+    if map_str:
+        try:
+            parsed = json.loads(map_str)
+            if isinstance(parsed, dict):
+                audience_map.update(parsed)
+        except Exception:
+            try:
+                parsed = ast.literal_eval(map_str)
+                if isinstance(parsed, dict):
+                    audience_map.update(parsed)
+            except (ValueError, SyntaxError):
+                pass
+
+    # Also merge explicit service URL -> Audience environment variable pairs
+    env_pairs = [
+        ("FLIGHT_SPECIALIST_URL", "FLIGHT_SPECIALIST_AUDIENCE"),
+        ("WEATHER_SPECIALIST_URL", "WEATHER_SPECIALIST_AUDIENCE"),
+        ("PROFILE_MCP_URL", "PROFILE_MCP_AUDIENCE"),
+    ]
+    for url_var, aud_var in env_pairs:
+        svc_url = os.environ.get(url_var, "").strip()
+        svc_aud = os.environ.get(aud_var, "").strip()
+        if svc_url and svc_aud:
+            audience_map.setdefault(svc_url, svc_aud)
+            # Also register the origin prefix (e.g. http://10.128.0.103)
+            parts = svc_url.split("/")
+            if len(parts) >= 3:
+                origin = f"{parts[0]}//{parts[2]}"
+                audience_map.setdefault(origin, svc_aud)
+
+    return audience_map
+
+
+async def invoke_booking_orchestrator(
+    url: str, user_id: str, itinerary_details: str, timeout: float = 180.0
+) -> dict:
+    """Invokes BookingOrchestrator over either Vertex AI Agent Engine REST API or HTTP /chat."""
+    import json
+    import re
+
+    import httpx
+
+    re_match = re.search(
+        r"(projects/[^/]+/locations/([^/]+)/reasoningEngines/[^/:?]+)", url or ""
+    )
+    if re_match:
+        resource_name = re_match.group(1)
+        location = re_match.group(2)
+        stream_url = (
+            f"https://{location}-aiplatform.googleapis.com/v1/"
+            f"{resource_name}:streamQuery?alt=sse"
+        )
+        token = os.environ.get("GOOGLE_OAUTH_ACCESS_TOKEN", "").strip()
+        if not token:
+            import google.auth
+            import google.auth.transport.requests
+
+            credentials, _ = google.auth.default(
+                scopes=["https://www.googleapis.com/auth/cloud-platform"]
+            )
+            auth_req = google.auth.transport.requests.Request()
+            credentials.refresh(auth_req)
+            token = credentials.token
+
+        prompt = (
+            f"Please finalize the following itinerary and summarize: "
+            f"{itinerary_details} for user {user_id}"
+        )
+        payload = {
+            "class_method": "stream_query",
+            "input": {"user_id": user_id, "message": prompt},
+        }
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        }
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.post(stream_url, json=payload, headers=headers)
+            response.raise_for_status()
+            raw_text = response.text
+
+        final_response = ""
+        for line in raw_text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            if line.startswith("data:"):
+                line = line[5:].strip()
+            try:
+                evt = json.loads(line)
+                for part in evt.get("content", {}).get("parts", []):
+                    if isinstance(part, dict) and part.get("text"):
+                        final_response += part["text"]
+            except Exception:
+                pass
+        return {
+            "status": "confirmed",
+            "summary": final_response or "Booking finalized via Reasoning Engine.",
+        }
+
+    payload = {"user_id": user_id, "itinerary_details": itinerary_details}
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        response = await client.post(url, json=payload, timeout=timeout)
+    response.raise_for_status()
+    return response.json()
 
 
 def _needs_oidc_auth(url):
@@ -186,6 +317,7 @@ def _setup_oidc_auth(requests_inst, httpx_inst):
     """
     import google.auth
     import google.auth.transport.requests
+    import httpx
     from google.oauth2 import id_token
 
     # Cache: audience -> (token, expiry_timestamp)
@@ -229,12 +361,43 @@ def _setup_oidc_auth(requests_inst, httpx_inst):
     def requests_request_hook(span, request):
         _inject_auth_headers(request, request.url)
 
-    if not requests_inst.is_instrumented_by_opentelemetry:
-        requests_inst.instrument(request_hook=requests_request_hook)
+    if requests_inst.is_instrumented_by_opentelemetry:
+        requests_inst.uninstrument()
+    requests_inst.instrument(request_hook=requests_request_hook)
 
-    # For HTTPX (ADK uses this)
+    # For HTTPX (ADK and specialist tools use both sync Client and AsyncClient)
     def httpx_request_hook(span, request):
         _inject_auth_headers(request, str(request.url))
 
-    if not httpx_inst.is_instrumented_by_opentelemetry:
-        httpx_inst.instrument(request_hook=httpx_request_hook)
+    async def async_httpx_request_hook(span, request):
+        _inject_auth_headers(request, str(request.url))
+
+    if httpx_inst.is_instrumented_by_opentelemetry:
+        httpx_inst.uninstrument()
+    httpx_inst.instrument(
+        request_hook=httpx_request_hook,
+        async_request_hook=async_httpx_request_hook,
+    )
+
+    # Also wrap httpx.Client.send and httpx.AsyncClient.send directly so OIDC
+    # and PSC Host headers are guaranteed even if OTel instrumentation is reset
+    # by the host runtime (e.g. Vertex AI Reasoning Engine).
+    _orig_sync_send = getattr(httpx.Client, "_orig_oidc_send", httpx.Client.send)
+    httpx.Client._orig_oidc_send = _orig_sync_send
+
+    def _oidc_sync_send(self, request, *args, **kwargs):
+        _inject_auth_headers(request, str(request.url))
+        return _orig_sync_send(self, request, *args, **kwargs)
+
+    httpx.Client.send = _oidc_sync_send
+
+    _orig_async_send = getattr(
+        httpx.AsyncClient, "_orig_oidc_send", httpx.AsyncClient.send
+    )
+    httpx.AsyncClient._orig_oidc_send = _orig_async_send
+
+    async def _oidc_async_send(self, request, *args, **kwargs):
+        _inject_auth_headers(request, str(request.url))
+        return await _orig_async_send(self, request, *args, **kwargs)
+
+    httpx.AsyncClient.send = _oidc_async_send

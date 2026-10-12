@@ -66,6 +66,10 @@ line-length = 120
 select = ["E", "F", "W", "I"]
 ignore = ["E402", "E501"]
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+norecursedirs = ["ai-demos", ".venv", ".git"]
+
 [dependency-groups]
 dev = [
     "ruff>=0.15.10",

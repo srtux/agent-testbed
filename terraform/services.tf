@@ -40,6 +40,12 @@ resource "google_project_service" "trace" {
   disable_on_destroy = false
 }
 
+resource "google_project_service" "telemetry" {
+  project = var.project_id
+  service = "telemetry.googleapis.com"
+  disable_on_destroy = false
+}
+
 resource "google_project_service" "iam" {
   project = var.project_id
   service = "iam.googleapis.com"

@@ -5,7 +5,7 @@
 # 1. Proxy-Only Subnet (Required for Region L7 Internal Load Balancers)
 # Using a range OUTSIDE 10.128.0.0/9 (Auto Subnets area)
 resource "google_compute_subnetwork" "ilb_proxy_only" {
-  count         = local.use_custom_domain ? 0 : 1
+
   name          = "ilb-proxy-only-subnet"
   ip_cidr_range = "10.0.0.0/23" # SAFE outside 10.128.0.0/9
   network       = data.google_compute_network.main.id
@@ -18,7 +18,7 @@ resource "google_compute_subnetwork" "ilb_proxy_only" {
 # --- Flight Specialist ILB ---
 
 resource "google_compute_region_backend_service" "flight_specialist_ilb" {
-  count                 = local.use_custom_domain ? 0 : 1
+
   name                  = "flight-specialist-ilb-backend"
   region                = var.region
   project               = var.project_id
@@ -32,7 +32,7 @@ resource "google_compute_region_backend_service" "flight_specialist_ilb" {
 }
 
 resource "google_compute_region_url_map" "flight_specialist_ilb" {
-  count           = local.use_custom_domain ? 0 : 1
+
   name            = "flight-specialist-ilb-map"
   region          = var.region
   project         = var.project_id
@@ -40,7 +40,7 @@ resource "google_compute_region_url_map" "flight_specialist_ilb" {
 }
 
 resource "google_compute_region_target_http_proxy" "flight_specialist_ilb" {
-  count   = local.use_custom_domain ? 0 : 1
+
   name    = "flight-specialist-ilb-proxy"
   region  = var.region
   project = var.project_id
@@ -48,7 +48,7 @@ resource "google_compute_region_target_http_proxy" "flight_specialist_ilb" {
 }
 
 resource "google_compute_forwarding_rule" "flight_specialist_ilb" {
-  count                 = local.use_custom_domain ? 0 : 1
+
   name                  = "flight-specialist-ilb-rule"
   region                = var.region
   project               = var.project_id
@@ -64,7 +64,7 @@ resource "google_compute_forwarding_rule" "flight_specialist_ilb" {
 # --- Weather Specialist ILB ---
 
 resource "google_compute_region_backend_service" "weather_specialist_ilb" {
-  count                 = local.use_custom_domain ? 0 : 1
+
   name                  = "weather-specialist-ilb-backend"
   region                = var.region
   project               = var.project_id
@@ -78,7 +78,7 @@ resource "google_compute_region_backend_service" "weather_specialist_ilb" {
 }
 
 resource "google_compute_region_url_map" "weather_specialist_ilb" {
-  count           = local.use_custom_domain ? 0 : 1
+
   name            = "weather-specialist-ilb-map"
   region          = var.region
   project         = var.project_id
@@ -86,7 +86,7 @@ resource "google_compute_region_url_map" "weather_specialist_ilb" {
 }
 
 resource "google_compute_region_target_http_proxy" "weather_specialist_ilb" {
-  count   = local.use_custom_domain ? 0 : 1
+
   name    = "weather-specialist-ilb-proxy"
   region  = var.region
   project = var.project_id
@@ -94,7 +94,7 @@ resource "google_compute_region_target_http_proxy" "weather_specialist_ilb" {
 }
 
 resource "google_compute_forwarding_rule" "weather_specialist_ilb" {
-  count                 = local.use_custom_domain ? 0 : 1
+
   name                  = "weather-specialist-ilb-rule"
   region                = var.region
   project               = var.project_id
@@ -110,7 +110,7 @@ resource "google_compute_forwarding_rule" "weather_specialist_ilb" {
 # --- Profile MCP ILB ---
 
 resource "google_compute_region_backend_service" "profile_mcp_ilb" {
-  count                 = local.use_custom_domain ? 0 : 1
+
   name                  = "profile-mcp-ilb-backend"
   region                = var.region
   project               = var.project_id
@@ -124,7 +124,7 @@ resource "google_compute_region_backend_service" "profile_mcp_ilb" {
 }
 
 resource "google_compute_region_url_map" "profile_mcp_ilb" {
-  count           = local.use_custom_domain ? 0 : 1
+
   name            = "profile-mcp-ilb-map"
   region          = var.region
   project         = var.project_id
@@ -132,7 +132,7 @@ resource "google_compute_region_url_map" "profile_mcp_ilb" {
 }
 
 resource "google_compute_region_target_http_proxy" "profile_mcp_ilb" {
-  count   = local.use_custom_domain ? 0 : 1
+
   name    = "profile-mcp-ilb-proxy"
   region  = var.region
   project = var.project_id
@@ -140,7 +140,7 @@ resource "google_compute_region_target_http_proxy" "profile_mcp_ilb" {
 }
 
 resource "google_compute_forwarding_rule" "profile_mcp_ilb" {
-  count                 = local.use_custom_domain ? 0 : 1
+
   name                  = "profile-mcp-ilb-rule"
   region                = var.region
   project               = var.project_id

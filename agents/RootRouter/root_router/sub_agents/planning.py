@@ -13,6 +13,7 @@ from opentelemetry.propagate import inject
 
 # Relative import from parent package
 from ..prompt import PLANNING_INSTRUCTION
+from testbed_utils.telemetry import invoke_booking_orchestrator
 
 logger = logging.getLogger(__name__)
 DEFAULT_PRO_MODEL = os.environ.get("PRO_MODEL", "gemini-2.5-pro")
@@ -32,7 +33,7 @@ async def research_destination(destination: str, dates: str) -> dict:
         credentials.refresh(auth_req)
         headers = {"Authorization": f"Bearer {credentials.token}"}
 
-        async with sse_client(mcp_url, headers=headers) as (read, write):
+        async with sse_client(mcp_url, headers=headers, timeout=10.0) as (read, write):
             async with ClientSession(read, write) as session:
                 await session.initialize()
                 meta = {}
@@ -136,11 +137,9 @@ async def call_car_specialist(user_id: str, destination: str, dates: str) -> dic
 async def handoff_to_booking(user_id: str, itinerary_details: str) -> dict:
     """Delegates to BookingOrchestrator to finalize and book the itinerary."""
     url = os.environ.get("BOOKING_ORCHESTRATOR_URL", "http://localhost:8081/chat")
-    payload = {"user_id": user_id, "itinerary_details": itinerary_details}
-    async with httpx.AsyncClient() as client:
-        response = await client.post(url, json=payload, timeout=180.0)
-    response.raise_for_status()
-    res_json = response.json()
+    res_json = await invoke_booking_orchestrator(
+        url=url, user_id=user_id, itinerary_details=itinerary_details, timeout=180.0
+    )
     logger.info(f"BookingOrchestrator response for {user_id}: {res_json}")
     return res_json
 

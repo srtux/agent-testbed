@@ -31,7 +31,7 @@ def test_all_paths_waterfall():
     endpoint = os.environ.get("ROOT_ROUTER_ENDPOINT") or os.environ.get(
         "ROOT_ROUTER_URL"
     )
-    project_id = os.environ.get("GOOGLE_CLOUD_PROJECT", "agent-o11y")
+    project_id = os.environ.get("GOOGLE_CLOUD_PROJECT", "__GCP_PROJECT_ID__")
 
     if not endpoint:
         pytest.skip("ROOT_ROUTER_ENDPOINT or ROOT_ROUTER_URL not set")

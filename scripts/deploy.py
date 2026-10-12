@@ -296,9 +296,8 @@ def deploy_agent_engine_task(
     with open(log_path, "w") as f:
         f.write("🤖 Deploying Agent Engine...\n")
         agent_deploy_command = [
-            "uv",
-            "run",
-            "deploy-agent-engine",
+            sys.executable,
+            str(root_dir / "scripts" / "deploy_agent_engine.py"),
             "--create",
             "--project_id",
             project_id,
@@ -687,6 +686,8 @@ def main():
 
         all_healthy = True
         for svc_name, svc_url in health_urls.items():
+            if svc_name.endswith("_audience"):
+                continue
             health_url = svc_url.rstrip("/") + "/health"
             try:
                 req = urllib.request.Request(health_url, method="GET")

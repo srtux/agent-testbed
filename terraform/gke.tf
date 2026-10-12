@@ -119,9 +119,7 @@ resource "kubernetes_service" "hotel_specialist" {
     labels = {
       testbed = "my-agent-testbed"
     }
-    annotations = local.use_custom_domain ? {
-      "cloud.google.com/neg" = jsonencode({ ingress = true })
-    } : {
+    annotations = {
       "cloud.google.com/load-balancer-type" = "Internal"
     }
   }
@@ -133,7 +131,7 @@ resource "kubernetes_service" "hotel_specialist" {
       port        = 80
       target_port = 8080
     }
-    type = local.use_custom_domain ? "ClusterIP" : "LoadBalancer"
+    type = "LoadBalancer"
   }
 }
 
@@ -206,8 +204,16 @@ resource "kubernetes_deployment" "car_rental_specialist" {
             value = var.project_id
           }
           env {
+            name  = "GOOGLE_GENAI_USE_VERTEXAI"
+            value = "true"
+          }
+          env {
             name  = "PROFILE_MCP_URL"
             value = "${local.profile_mcp_url}/sse"
+          }
+          env {
+            name  = "PROFILE_MCP_AUDIENCE"
+            value = local.profile_mcp_audience
           }
 
           resources {
@@ -250,9 +256,7 @@ resource "kubernetes_service" "car_rental_specialist" {
     labels = {
       testbed = "my-agent-testbed"
     }
-    annotations = local.use_custom_domain ? {
-      "cloud.google.com/neg" = jsonencode({ ingress = true })
-    } : {
+    annotations = {
       "cloud.google.com/load-balancer-type" = "Internal"
     }
   }
@@ -264,7 +268,7 @@ resource "kubernetes_service" "car_rental_specialist" {
       port        = 80
       target_port = 8080
     }
-    type = local.use_custom_domain ? "ClusterIP" : "LoadBalancer"
+    type = "LoadBalancer"
   }
 }
 
@@ -298,7 +302,7 @@ resource "kubernetes_deployment" "inventory_mcp" {
           "iam.gke.io/identity-type"      = "agent_identity"
         }
         annotations = {
-          "iam.gke.io/identity" = "spiffe://agents.global.org-$${ORGNUM}.system.id.goog/*"
+          "iam.gke.io/identity" = "spiffe://${var.project_id}.svc.id.goog/*"
         }
       }
       spec {
@@ -372,9 +376,7 @@ resource "kubernetes_service" "inventory_mcp" {
     labels = {
       testbed = "my-agent-testbed"
     }
-    annotations = local.use_custom_domain ? {
-      "cloud.google.com/neg" = jsonencode({ ingress = true })
-    } : {
+    annotations = {
       "cloud.google.com/load-balancer-type" = "Internal"
     }
   }
@@ -386,7 +388,7 @@ resource "kubernetes_service" "inventory_mcp" {
       port        = 80
       target_port = 8080
     }
-    type = local.use_custom_domain ? "ClusterIP" : "LoadBalancer"
+    type = "LoadBalancer"
   }
 }
 

@@ -73,16 +73,18 @@ async def delegate_to_booking_orchestrator(
     user_id: str, itinerary_details: str
 ) -> dict:
     """Sends finalized travel plans to the Booking Orchestrator."""
+    from testbed_utils.telemetry import invoke_booking_orchestrator
+
     logger.info(f"Delegating final confirmation to Booking Orchestrator for {user_id}")
     booking_orch_url = os.environ.get(
         "BOOKING_ORCHESTRATOR_URL", "http://localhost:8081/chat"
     )
-
-    async with httpx.AsyncClient() as client:
-        payload = {"user_id": user_id, "itinerary_details": itinerary_details}
-        res = await client.post(booking_orch_url, json=payload, timeout=60.0)
-        res.raise_for_status()
-        return res.json()
+    return await invoke_booking_orchestrator(
+        url=booking_orch_url,
+        user_id=user_id,
+        itinerary_details=itinerary_details,
+        timeout=120.0,
+    )
 
 
 # --- Agent ---

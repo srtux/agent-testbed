@@ -120,12 +120,30 @@ resource "google_project_iam_member" "test_runner_ai_user" {
   member  = "serviceAccount:${google_service_account.test_runner.email}"
 }
 
+resource "google_project_iam_member" "test_runner_telemetry_writer" {
+  project = var.project_id
+  role    = "roles/telemetry.writer"
+  member  = "serviceAccount:${google_service_account.test_runner.email}"
+}
+
+resource "google_project_iam_member" "test_runner_trace_agent" {
+  project = var.project_id
+  role    = "roles/cloudtrace.agent"
+  member  = "serviceAccount:${google_service_account.test_runner.email}"
+}
+
 # --- Cloud Run Service Account Trace Permissions ---
-# Cloud Run SAs need cloudtrace.agent to export OTLP spans
+# Cloud Run SAs need cloudtrace.agent and telemetry.writer to export OTLP spans
 
 resource "google_project_iam_member" "flight_specialist_trace_agent" {
   project = var.project_id
   role    = "roles/cloudtrace.agent"
+  member  = "serviceAccount:${google_service_account.flight_specialist.email}"
+}
+
+resource "google_project_iam_member" "flight_specialist_telemetry_writer" {
+  project = var.project_id
+  role    = "roles/telemetry.writer"
   member  = "serviceAccount:${google_service_account.flight_specialist.email}"
 }
 
@@ -135,9 +153,21 @@ resource "google_project_iam_member" "flight_specialist_metric_writer" {
   member  = "serviceAccount:${google_service_account.flight_specialist.email}"
 }
 
+resource "google_project_iam_member" "flight_specialist_ai_user" {
+  project = var.project_id
+  role    = "roles/aiplatform.user"
+  member  = "serviceAccount:${google_service_account.flight_specialist.email}"
+}
+
 resource "google_project_iam_member" "weather_specialist_trace_agent" {
   project = var.project_id
   role    = "roles/cloudtrace.agent"
+  member  = "serviceAccount:${google_service_account.weather_specialist.email}"
+}
+
+resource "google_project_iam_member" "weather_specialist_telemetry_writer" {
+  project = var.project_id
+  role    = "roles/telemetry.writer"
   member  = "serviceAccount:${google_service_account.weather_specialist.email}"
 }
 
@@ -147,9 +177,21 @@ resource "google_project_iam_member" "weather_specialist_metric_writer" {
   member  = "serviceAccount:${google_service_account.weather_specialist.email}"
 }
 
+resource "google_project_iam_member" "weather_specialist_ai_user" {
+  project = var.project_id
+  role    = "roles/aiplatform.user"
+  member  = "serviceAccount:${google_service_account.weather_specialist.email}"
+}
+
 resource "google_project_iam_member" "profile_mcp_trace_agent" {
   project = var.project_id
   role    = "roles/cloudtrace.agent"
+  member  = "serviceAccount:${google_service_account.profile_mcp.email}"
+}
+
+resource "google_project_iam_member" "profile_mcp_telemetry_writer" {
+  project = var.project_id
+  role    = "roles/telemetry.writer"
   member  = "serviceAccount:${google_service_account.profile_mcp.email}"
 }
 
@@ -175,6 +217,12 @@ resource "google_project_iam_member" "inventory_mcp_trace_agent" {
   member  = "serviceAccount:${google_service_account.inventory_mcp_gsa.email}"
 }
 
+resource "google_project_iam_member" "inventory_mcp_telemetry_writer" {
+  project = var.project_id
+  role    = "roles/telemetry.writer"
+  member  = "serviceAccount:${google_service_account.inventory_mcp_gsa.email}"
+}
+
 resource "google_project_iam_member" "inventory_mcp_metric_writer" {
   project = var.project_id
   role    = "roles/monitoring.metricWriter"
@@ -197,6 +245,12 @@ resource "google_service_account_iam_member" "inventory_mcp_workload_identity" {
 resource "google_project_iam_member" "gke_agents_trace_agent" {
   project = var.project_id
   role    = "roles/cloudtrace.agent"
+  member  = "serviceAccount:${google_service_account.gke_agents_gsa.email}"
+}
+
+resource "google_project_iam_member" "gke_agents_telemetry_writer" {
+  project = var.project_id
+  role    = "roles/telemetry.writer"
   member  = "serviceAccount:${google_service_account.gke_agents_gsa.email}"
 }
 

@@ -18,14 +18,18 @@ resource "google_cloudfunctions2_function" "traffic_generator" {
   service_config {
     max_instance_count = 1
     available_memory   = "512M"
-    timeout_seconds    = 60
+    timeout_seconds    = 540
     ingress_settings   = "ALLOW_INTERNAL_ONLY"
 
     # Do not allow unauthenticated access
     service_account_email = google_service_account.test_runner.email
 
     environment_variables = {
-      ROOT_ROUTER_URL = var.root_router_url
+      ROOT_ROUTER_URL              = var.root_router_url
+      GOOGLE_CLOUD_PROJECT         = var.project_id
+      OTEL_EXPORTER_OTLP_ENDPOINT  = "https://telemetry.googleapis.com"
+      OTEL_SERVICE_NAME            = "traffic-generator"
+      OTEL_SEMCONV_STABILITY_OPT_IN = "gen_ai_latest_experimental"
     }
   }
 

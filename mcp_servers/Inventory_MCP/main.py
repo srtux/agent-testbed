@@ -20,22 +20,36 @@ import os
 
 from mcp.server.transport_security import TransportSecuritySettings
 
-allowed_hosts = ["127.0.0.1:*", "localhost:*", "[::1]:*"]
+allowed_hosts = [
+    "127.0.0.1",
+    "127.0.0.1:*",
+    "localhost",
+    "localhost:*",
+    "[::1]",
+    "[::1]:*",
+    "gke-inventory-mcp-service",
+    "gke-inventory-mcp-service:*",
+    "gke-inventory-mcp-service.default.svc.cluster.local",
+    "gke-inventory-mcp-service.default.svc.cluster.local:*",
+]
 service_host = os.environ.get("GKE_INVENTORY_MCP_SERVICE_SERVICE_HOST")
 if service_host:
-    allowed_hosts.append(f"{service_host}:*")
-allowed_hosts.extend(
-    [
-        "gke-inventory-mcp-service:*",
-        "gke-inventory-mcp-service.default.svc.cluster.local:*",
-    ]
-)
+    allowed_hosts.extend([service_host, f"{service_host}:*"])
+extra_hosts = os.environ.get("ALLOWED_HOSTS")
+if extra_hosts:
+    for h in extra_hosts.split(","):
+        host_val = h.strip()
+        if not host_val:
+            continue
+        allowed_hosts.append(host_val)
+        if ":" not in host_val:
+            allowed_hosts.append(f"{host_val}:*")
 
 # --- FastMCP Server ---
 mcp = FastMCP(
     "Inventory_MCP",
     transport_security=TransportSecuritySettings(
-        enable_dns_rebinding_protection=True,
+        enable_dns_rebinding_protection=bool(extra_hosts),
         allowed_hosts=allowed_hosts,
         allowed_origins=["http://127.0.0.1:*", "http://localhost:*"],
     ),

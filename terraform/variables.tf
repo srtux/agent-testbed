@@ -26,11 +26,7 @@ variable "cluster_name" {
   default     = "cluster2"
 }
 
-variable "custom_domain" {
-  type        = string
-  description = "Base custom domain (e.g., testbed.example.com). Leave empty to use Cloud Run native URLs and GKE LoadBalancer IPs."
-  default     = ""
-}
+
 
 variable "root_router_url" {
   type        = string
@@ -84,13 +80,13 @@ variable "traffic_generator_source_zip" {
 variable "vpc_subnetwork" {
   type        = string
   description = "The subnetwork to use for Cloud Run Direct VPC egress (e.g., projects/PROJ/regions/REG/subnetworks/SUBNET). Leave empty if not using Direct VPC Egress."
-  default     = ""
+  default     = "default"
 }
 
 variable "vpc_name" {
   type        = string
   description = "The VPC network name to use for Cloud Run Direct VPC egress. Required if vpc_subnetwork is set."
-  default     = ""
+  default     = "default"
 }
 
 variable "traffic_schedule" {

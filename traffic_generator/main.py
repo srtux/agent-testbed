@@ -68,10 +68,20 @@ def setup_telemetry():
         from opentelemetry.sdk.trace import TracerProvider
         from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
+        project_id = os.environ.get(
+            "GOOGLE_CLOUD_PROJECT", os.environ.get("PROJECT_ID", "")
+        )
+        if not project_id:
+            try:
+                _, detected_project = google.auth.default()
+                project_id = detected_project or ""
+            except Exception:
+                project_id = ""
+
         resource = Resource(
             attributes={
                 "service.name": os.environ.get("OTEL_SERVICE_NAME", "traffic-generator"),
-                "gcp.project_id": os.environ.get("GOOGLE_CLOUD_PROJECT", ""),
+                "gcp.project_id": project_id,
             }
         )
         provider = TracerProvider(resource=resource)
@@ -159,28 +169,54 @@ def generate_traffic(request: Request):
 
             responses = []
 
-            # Extract engine_id from URL to create session via SDK
-            match = re.search(r"/reasoningEngines/([^:]+)", ae1_url)
-            if match:
-                engine_id = match.group(1)
-                logger.info(f"Extracted engine_id: {engine_id}")
+            # Detect if ROOT_ROUTER_URL targets a Vertex AI Reasoning Engine
+            re_match = re.search(
+                r"(projects/[^/]+/locations/([^/]+)/reasoningEngines/([^/:?]+))",
+                ae1_url,
+            )
+            is_reasoning_engine = bool(re_match)
+            session_id = None
+
+            if is_reasoning_engine:
+                resource_name = re_match.group(1)
+                location = re_match.group(2)
+                engine_id = re_match.group(3)
+                query_url = f"https://{location}-aiplatform.googleapis.com/v1/{resource_name}:query"
+                stream_url = f"https://{location}-aiplatform.googleapis.com/v1/{resource_name}:streamQuery?alt=sse"
+                logger.info(
+                    f"Resolved Reasoning Engine: {resource_name} (location={location})"
+                )
 
                 try:
-                    aiplatform.init(project=project, location="us-central1")
-                    engine = ReasoningEngine(engine_id)
-                    logger.info(f"Creating session for user {user_id}...")
-                    session = engine.create_session(user_id=user_id)
-                    session_id = session.get("id")
-                    logger.info(f"Successfully created session: {session_id}")
-                except Exception as e:
-                    logger.error(
-                        f"Failed to create session via SDK: {e}. Falling back to random UUID."
+                    sess_res = requests.post(
+                        query_url,
+                        json={
+                            "class_method": "create_session",
+                            "input": {"user_id": user_id},
+                        },
+                        headers=auth_headers,
+                        timeout=60.0,
                     )
-                    session_id = str(uuid.uuid4())
+                    sess_res.raise_for_status()
+                    sess_data = sess_res.json()
+                    session_id = sess_data.get("output", {}).get("id") or sess_data.get(
+                        "id"
+                    )
+                    logger.info(f"Successfully created session via REST: {session_id}")
+                except Exception as rest_e:
+                    logger.warning(
+                        f"REST create_session failed ({rest_e}), trying SDK fallback..."
+                    )
+                    try:
+                        aiplatform.init(project=project, location=location)
+                        engine = ReasoningEngine(engine_id)
+                        session = engine.create_session(user_id=user_id)
+                        session_id = session.get("id")
+                    except Exception as sdk_e:
+                        logger.error(
+                            f"Failed to create session via SDK: {sdk_e}. Proceeding stateless."
+                        )
             else:
-                logger.warning(
-                    f"Could not extract engine_id from URL: {ae1_url}. Falling back to random UUID."
-                )
                 session_id = str(uuid.uuid4())
 
             # --- Setup Scenario Prompts Chain ---
@@ -219,25 +255,45 @@ def generate_traffic(request: Request):
                 logger.info(f"Sending Turn {i + 1}: {prompt_text}")
                 span.set_attribute(f"gen_ai.prompt.{i + 1}", prompt_text)
 
-                payload = {"input": {"message": prompt_text, "user_id": user_id}}
-                if session_id:
-                    payload["input"]["session_id"] = session_id
+                if is_reasoning_engine:
+                    payload = {
+                        "class_method": "stream_query",
+                        "input": {"message": prompt_text, "user_id": user_id},
+                    }
+                    if session_id:
+                        payload["input"]["session_id"] = session_id
 
-                res = requests.post(
-                    ae1_url,
-                    json=payload,
-                    headers=auth_headers,
-                    timeout=300.0,
-                    stream=True,
-                )
+                    res = requests.post(
+                        stream_url,
+                        json=payload,
+                        headers=auth_headers,
+                        timeout=300.0,
+                        stream=True,
+                    )
+                    res.raise_for_status()
 
-                res.raise_for_status()
-
-                full_response = ""
-                for line in res.iter_lines():
-                    if line:
-                        decoded_line = line.decode("utf-8")
-                        full_response += decoded_line
+                    full_response = ""
+                    for line in res.iter_lines():
+                        if line:
+                            decoded_line = line.decode("utf-8")
+                            full_response += decoded_line
+                else:
+                    target_url = (
+                        ae1_url
+                        if ae1_url.endswith("/chat")
+                        else ae1_url.rstrip("/") + "/chat"
+                    )
+                    payload = {"user_id": user_id, "prompt": prompt_text}
+                    if session_id:
+                        payload["session_id"] = session_id
+                    res = requests.post(
+                        target_url,
+                        json=payload,
+                        headers=auth_headers,
+                        timeout=300.0,
+                    )
+                    res.raise_for_status()
+                    full_response = res.text
 
                 responses.append(
                     {

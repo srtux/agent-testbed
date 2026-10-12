@@ -1,12 +1,22 @@
 import asyncio
 import os
-import shutil
+import socket
 import subprocess
+import sys
 import time
 
 import pytest
 
 from testbed_utils.services import LOCAL_SERVICES
+
+
+def _is_port_in_use(port: int) -> bool:
+    """Fast local TCP port check without invoking lsof (which stalls on network FUSE mounts)."""
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=0.2):
+            return True
+    except OSError:
+        return False
 
 
 def pytest_configure(config):
@@ -53,17 +63,11 @@ def start_local_services():
                 continue
 
             # Skip startup if the port is already bound
-            if shutil.which("lsof"):
-                check = subprocess.run(
-                    ["lsof", "-ti", f":{svc.port}"],
-                    capture_output=True,
-                    text=True,
+            if _is_port_in_use(svc.port):
+                print(
+                    f"Port {svc.port} already in use, skipping startup for {svc.name}."
                 )
-                if check.stdout.strip():
-                    print(
-                        f"Port {svc.port} already in use, skipping startup for {svc.name}."
-                    )
-                    continue
+                continue
 
             env = os.environ.copy()
             # Set to true to disable manual trace setup in setup_telemetry() for local tests,
@@ -80,11 +84,11 @@ def start_local_services():
             log_file = open(os.path.join(log_dir, f"{svc.name}.log"), "w")
             log_files.append(log_file)
 
-            # Start service
+            # Start service directly using active Python interpreter
             p = subprocess.Popen(
                 [
-                    "uv",
-                    "run",
+                    sys.executable,
+                    "-m",
                     "uvicorn",
                     "main:app",
                     "--port",

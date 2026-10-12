@@ -66,3 +66,64 @@ def test_extract_travel_intent_dates(user_input, expected_dates):
     assert result["dates"] == expected_dates
     assert result["raw_input"] == user_input
     assert result["destination"] is None  # Currently hardcoded to None in the tool
+
+
+def test_audience_map_env_pair_fallback(monkeypatch):
+    """Verifies that _load_audience_map, _needs_oidc_auth, and _get_audience resolve ILB URLs from *_URL/*_AUDIENCE env vars."""
+    from testbed_utils.telemetry import _get_audience, _load_audience_map, _needs_oidc_auth
+
+    monkeypatch.delenv("URL_AUDIENCE_MAP", raising=False)
+    monkeypatch.setenv("FLIGHT_SPECIALIST_URL", "http://10.128.0.103/chat")
+    monkeypatch.setenv(
+        "FLIGHT_SPECIALIST_AUDIENCE",
+        "https://flight-specialist-umbi5pyafa-uc.a.run.app",
+    )
+    monkeypatch.setenv("PROFILE_MCP_URL", "http://10.128.0.87/sse")
+    monkeypatch.setenv(
+        "PROFILE_MCP_AUDIENCE",
+        "https://profile-mcp-umbi5pyafa-uc.a.run.app",
+    )
+
+    aud_map = _load_audience_map()
+    assert aud_map.get("http://10.128.0.103") == "https://flight-specialist-umbi5pyafa-uc.a.run.app"
+    assert _needs_oidc_auth("http://10.128.0.103/chat") is True
+    assert _get_audience("http://10.128.0.103/chat") == "https://flight-specialist-umbi5pyafa-uc.a.run.app"
+    assert _needs_oidc_auth("http://10.128.0.87/sse") is True
+    assert _get_audience("http://10.128.0.87/sse") == "https://profile-mcp-umbi5pyafa-uc.a.run.app"
+
+
+def test_httpx_async_client_oidc_and_host_injection(monkeypatch):
+    """Verifies that httpx.AsyncClient and httpx.Client inject Authorization and Host headers for PSC ILB targets."""
+    import asyncio
+    from unittest.mock import patch
+    import httpx
+    from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+    from opentelemetry.instrumentation.requests import RequestsInstrumentor
+    from testbed_utils.telemetry import _setup_oidc_auth
+
+    monkeypatch.setenv("FLIGHT_SPECIALIST_URL", "http://10.128.0.103/chat")
+    monkeypatch.setenv(
+        "FLIGHT_SPECIALIST_AUDIENCE",
+        "https://flight-specialist-umbi5pyafa-uc.a.run.app",
+    )
+
+    captured_headers = {}
+
+    class MockAsyncTransport(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            captured_headers["authorization"] = request.headers.get("authorization")
+            captured_headers["host"] = request.headers.get("host")
+            return httpx.Response(200, json={"status": "ok"})
+
+    with patch("google.oauth2.id_token.fetch_id_token", return_value="fake-oidc-token"):
+        _setup_oidc_auth(RequestsInstrumentor(), HTTPXClientInstrumentor())
+
+        async def _run():
+            async with httpx.AsyncClient(transport=MockAsyncTransport()) as client:
+                resp = await client.post("http://10.128.0.103/chat", json={"user_id": "u1"})
+                assert resp.status_code == 200
+
+        asyncio.run(_run())
+
+    assert captured_headers.get("authorization") == "Bearer fake-oidc-token"
+    assert captured_headers.get("host") == "flight-specialist-umbi5pyafa-uc.a.run.app"

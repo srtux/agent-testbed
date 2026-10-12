@@ -47,17 +47,7 @@ output "profile_mcp_audience" {
   description = "Audience for Profile MCP OIDC tokens"
 }
 
-# --- Load Balancer IPs (only with custom domain) ---
 
-output "cloud_run_lb_ip" {
-  value       = local.use_custom_domain ? google_compute_global_address.cloud_run_lb[0].address : ""
-  description = "Global IP for the Cloud Run LB (empty if not using custom domain)."
-}
-
-output "gke_lb_ip" {
-  value       = local.use_custom_domain ? google_compute_global_address.gke_lb[0].address : ""
-  description = "Global IP for the GKE Ingress LB (empty if not using custom domain)."
-}
 
 # --- Other ---
 
@@ -71,8 +61,8 @@ output "test_runner_sa" {
 }
 
 output "mode" {
-  value       = local.use_custom_domain ? "custom_domain" : "direct"
-  description = "Deployment mode: custom_domain (LBs + SSL) or direct (native URLs + LoadBalancer IPs)."
+  value       = "direct"
+  description = "Deployment mode: direct (native URLs + LoadBalancer IPs)."
 }
 
 # output "bastion_ssh_command" {

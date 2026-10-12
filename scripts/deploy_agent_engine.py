@@ -78,13 +78,23 @@ def create_agent(
     psc_network_attachment=None,
     vpc_project_id=None,
     vpc_name=None,
-) -> None:
+    booking_orchestrator_url=None,
+) -> str | None:
     """Creates an agent engine for the given agent."""
     import importlib.util
+    import shutil
 
     import cloudpickle
 
     agent_dir = os.path.abspath(os.path.join(project_root, config["dir"]))
+    # Remove any sibling agent directories from sys.path to prevent cross-agent import collisions
+    agents_root = os.path.join(project_root, "agents")
+    sys.path[:] = [
+        p
+        for p in sys.path
+        if not (p.startswith(agents_root) and os.path.abspath(p) != agent_dir)
+    ]
+
     module_name = f"main_{config['name']}"
     spec = importlib.util.spec_from_file_location(
         module_name, os.path.join(agent_dir, "main.py")
@@ -105,11 +115,18 @@ def create_agent(
                 cloudpickle.register_pickle_by_value(cp_module)
 
     # Also register testbed_utils to prevent remote ModuleNotFoundError
+    import testbed_utils
+    import testbed_utils.config
     import testbed_utils.logging
+    import testbed_utils.mock_llm
     import testbed_utils.telemetry
 
+    cloudpickle.register_pickle_by_value(testbed_utils)
     cloudpickle.register_pickle_by_value(testbed_utils.telemetry)
     cloudpickle.register_pickle_by_value(testbed_utils.logging)
+    cloudpickle.register_pickle_by_value(testbed_utils.config)
+    cloudpickle.register_pickle_by_value(testbed_utils.mock_llm)
+    cloudpickle.register_pickle_by_value(sys.modules[__name__])
 
     import vertexai
     from google.oauth2.credentials import Credentials
@@ -125,12 +142,43 @@ def create_agent(
     )
 
     agent_obj = agent_module.agent
+    _setup_auth_transport = testbed_utils.telemetry.setup_authenticated_transport
 
     class MyAdkApp(AdkApp):
+        def clone(self):
+            import copy
+
+            return MyAdkApp(
+                agent=copy.deepcopy(self._tmpl_attrs.get("agent")),
+                enable_tracing=self._tmpl_attrs.get("enable_tracing"),
+                session_service_builder=self._tmpl_attrs.get("session_service_builder"),
+                artifact_service_builder=self._tmpl_attrs.get(
+                    "artifact_service_builder"
+                ),
+                memory_service_builder=self._tmpl_attrs.get("memory_service_builder"),
+                env_vars=self._tmpl_attrs.get("env_vars"),
+            )
+
+        def project_id(self):
+            proj = self._tmpl_attrs.get("project")
+            if proj and not str(proj).isdigit():
+                return proj
+            return super().project_id()
+
+        def set_up(self):
+            # Ensure OIDC transport hooks and google-adk 2.0.0a3 numeric app_name
+            # validation patch are installed when AdkApp initializes on Agent Engine.
+            _setup_auth_transport()
+            return super().set_up()
+
         def query(self, *args, **kwargs):
             response_text = ""
             for event in self.stream_query(*args, **kwargs):
-                if hasattr(event, "content") and event.content:
+                if isinstance(event, dict):
+                    for part in event.get("content", {}).get("parts", []):
+                        if isinstance(part, dict) and part.get("text"):
+                            response_text += part["text"]
+                elif hasattr(event, "content") and event.content:
                     for part in event.content.parts:
                         if part.text:
                             response_text += part.text
@@ -141,42 +189,32 @@ def create_agent(
 
     adk_app = MyAdkApp(agent=agent_obj)
 
-    # Dynamically export requirements from uv workspace to ensure consistency
-    import re
-    import subprocess
-
-    requirements = []
-    try:
-        print("📦 Exporting requirements via uv...")
-        result = subprocess.run(
-            ["uv", "export", "--no-dev", "--frozen"],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        for line in result.stdout.splitlines():
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            # Match package==version (ignoring hashes and continuation characters)
-            match = re.match(r"^([a-zA-Z0-9_-]+==[0-9a-zA-Z.-]+)", line)
-            if match:
-                requirements.append(match.group(1))
-        print(f"📦 Successfully exported {len(requirements)} requirements.")
-    except Exception as e:
-        print(f"⚠️ Warning: Failed to export requirements via uv: {e}")
-        print("⚠️ Falling back to minimal hardcoded list.")
-        requirements = [
-            "google-adk==2.0.0a2",
-            "fastapi>=0.135.1",
-            "mcp>=1.26.0",
-            "opentelemetry-api>=1.38.0",
-            "opentelemetry-sdk>=1.38.0",
-            "opentelemetry-exporter-otlp-proto-grpc",
-            "opentelemetry-instrumentation-fastapi>=0.59b0",
-            "opentelemetry-instrumentation-httpx>=0.59b0",
-            "google-genai>=0.7b0",
-        ]
+    # Explicit Linux-compatible runtime requirements for Vertex AI Reasoning Engine.
+    # Avoid exporting the full workspace lockfile via `uv export`, which pulls in
+    # Windows-only packages (pywin32, pywin32-ctypes), desktop D-Bus keyrings
+    # (jeepney, secretstorage), and dev/test packages that fail or bloat container builds.
+    requirements = [
+        "fastapi>=0.135.1",
+        "google-adk==2.0.0a3",
+        "mcp>=1.26.0",
+        "opentelemetry-api>=1.38.0",
+        "opentelemetry-exporter-gcp-logging",
+        "opentelemetry-exporter-gcp-monitoring",
+        "opentelemetry-exporter-otlp-proto-grpc",
+        "opentelemetry-instrumentation-fastapi>=0.59b0",
+        "opentelemetry-instrumentation-google-genai>=0.7b0",
+        "opentelemetry-instrumentation-httpx>=0.59b0",
+        "opentelemetry-instrumentation-requests>=0.59b0",
+        "opentelemetry-instrumentation-vertexai>=2.0b0",
+        "opentelemetry-sdk>=1.38.0",
+        "uvicorn>=0.41.0",
+        "pydantic>=2.10.6,<3.0.0",
+        "google-cloud-aiplatform[adk,agent-engines]>=1.93.0",
+        "google-genai>=1.5.0",
+        "httpx>=0.28.0",
+        "requests>=2.32.0",
+        "cloudpickle==3.1.2",
+    ]
 
     # Build service URLs - from custom domain or terraform outputs
     urls = {}
@@ -191,12 +229,12 @@ def create_agent(
         }
     elif service_urls:
         urls = {
-            "FLIGHT_SPECIALIST_URL": f"{service_urls.get('flight_specialist_url', '')}/chat",
-            "WEATHER_SPECIALIST_URL": f"{service_urls.get('weather_specialist_url', '')}/chat",
-            "PROFILE_MCP_URL": f"{service_urls.get('profile_mcp_url', '')}/sse",
-            "INVENTORY_MCP_URL": f"{service_urls.get('inventory_mcp_url', '')}/sse",
-            "HOTEL_SPECIALIST_URL": f"{service_urls.get('hotel_specialist_url', '')}/chat",
-            "CAR_RENTAL_SPECIALIST_URL": f"{service_urls.get('car_rental_url', '')}/chat",
+            "FLIGHT_SPECIALIST_URL": f"{service_urls.get('flight_specialist_url', '').rstrip('/')}/chat",
+            "WEATHER_SPECIALIST_URL": f"{service_urls.get('weather_specialist_url', '').rstrip('/')}/chat",
+            "PROFILE_MCP_URL": f"{service_urls.get('profile_mcp_url', '').rstrip('/')}/sse",
+            "INVENTORY_MCP_URL": f"{service_urls.get('inventory_mcp_url', '').rstrip('/')}/sse",
+            "HOTEL_SPECIALIST_URL": f"{service_urls.get('hotel_specialist_url', '').rstrip('/')}/chat",
+            "CAR_RENTAL_SPECIALIST_URL": f"{service_urls.get('car_rental_url', '').rstrip('/')}/chat",
             "FLIGHT_SPECIALIST_AUDIENCE": service_urls.get(
                 "flight_specialist_audience", ""
             ),
@@ -209,6 +247,12 @@ def create_agent(
         print(
             f"  Warning: No custom_domain or service_urls provided for {agent_obj.name}"
         )
+
+    resolved_booking_url = booking_orchestrator_url or (
+        service_urls.get("booking_orchestrator_url") if service_urls else None
+    )
+    if resolved_booking_url:
+        urls["BOOKING_ORCHESTRATOR_URL"] = resolved_booking_url
 
     # Build URL Audience Map for OIDC hook mapped back-channels
     import json
@@ -278,11 +322,17 @@ def create_agent(
             )
             print(f"  DNS Peering Domains: {', '.join(dns_domains)}")
 
-    print(f"🤖 Deploying {agent_obj.name}...")
+    print(f"🤖 Deploying {agent_obj.name} (gcs_dir_name={config['name']})...")
     resource_name = None
-    existing_resource_name = (
-        existing_agents_lookup.get(agent_obj.name) if existing_agents_lookup else None
-    )
+    existing_resource_name = None
+    if existing_agents_lookup:
+        existing_resource_name = existing_agents_lookup.get(agent_obj.name)
+        if not existing_resource_name:
+            for disp_name, res_name in existing_agents_lookup.items():
+                if disp_name.startswith(f"{agent_obj.name}_"):
+                    existing_resource_name = res_name
+                    break
+
     try:
         if existing_resource_name:
             print(
@@ -292,7 +342,9 @@ def create_agent(
                 resource_name=existing_resource_name,
                 agent_engine=adk_app,
                 requirements=requirements,
+                extra_packages=["testbed_utils"],
                 env_vars=env_vars,
+                gcs_dir_name=config["name"],
                 psc_interface_config=psc_interface_config,
             )
         else:
@@ -301,21 +353,27 @@ def create_agent(
                 adk_app,
                 display_name=agent_obj.name,
                 requirements=requirements,
+                extra_packages=["testbed_utils"],
                 env_vars=env_vars,
+                gcs_dir_name=config["name"],
                 psc_interface_config=psc_interface_config,
             )
         resource_name = remote_agent.resource_name
         print(f"✅ Deployed remote agent {agent_obj.name}: {resource_name}")
     except Exception as e:
-        print(f"❌ Error creating agent {agent_obj.name}: {e}")
-        print("  Attempting to recover resource name via list()...")
+        print(f"❌ Error deploying agent {agent_obj.name}: {e}")
+        if existing_resource_name:
+            raise e
+        print("  Attempting to recover newly created resource name via list()...")
         import time
 
         time.sleep(5)
         try:
             remote_agents = agent_engines.AgentEngine.list()
             for agent in remote_agents:
-                if agent.display_name == agent_obj.name:
+                if agent.display_name == agent_obj.name or agent.display_name.startswith(
+                    f"{agent_obj.name}_"
+                ):
                     print(
                         f"  ✅ Recovered resource name for {agent_obj.name}: {agent.resource_name}"
                     )
@@ -337,10 +395,11 @@ def create(
     vpc_project_id=None,
     vpc_name=None,
 ) -> dict:
-    """Deploy all configured ADK agents in parallel. Returns dict of agent_name -> resource_name."""
+    """Deploy all configured ADK agents sequentially. Returns dict of agent_name -> resource_name."""
+    # Deploy BookingOrchestrator first so its resource name can be injected into RootRouter
     agent_configs = [
-        {"name": "RootRouter", "dir": "agents/RootRouter"},
         {"name": "BookingOrchestrator", "dir": "agents/BookingOrchestrator"},
+        {"name": "RootRouter", "dir": "agents/RootRouter"},
     ]
 
     print("Listing existing agents...")
@@ -384,6 +443,7 @@ def create(
                 psc_network_attachment,
                 vpc_project_id,
                 vpc_name,
+                booking_orchestrator_url=results.get("BookingOrchestrator"),
             )
             results[config["name"]] = resource_name
             print(f"✅ Deployed remote agent {config['name']}: {resource_name}")

@@ -71,6 +71,10 @@ resource "google_cloud_run_v2_service" "flight_specialist" {
         name  = "WEATHER_SPECIALIST_URL"
         value = "${local.weather_specialist_url}/chat"
       }
+      env {
+        name  = "WEATHER_SPECIALIST_AUDIENCE"
+        value = local.weather_specialist_audience
+      }
     }
   }
 }
@@ -199,6 +203,10 @@ resource "google_cloud_run_v2_service" "profile_mcp" {
       env {
         name  = "OTEL_SERVICE_NAME"
         value = "profile-mcp"
+      }
+      env {
+        name  = "GOOGLE_CLOUD_PROJECT"
+        value = var.project_id
       }
       env {
         name  = "GEMINI_API_KEY"

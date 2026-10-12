@@ -20,20 +20,28 @@ import os
 
 from mcp.server.transport_security import TransportSecuritySettings
 
-allowed_hosts = ["127.0.0.1:*", "localhost:*", "[::1]:*"]
+allowed_hosts = [
+    "127.0.0.1",
+    "127.0.0.1:*",
+    "localhost",
+    "localhost:*",
+    "[::1]",
+    "[::1]:*",
+]
 extra_hosts = os.environ.get("ALLOWED_HOSTS")
 if extra_hosts:
-    allowed_hosts.extend(
-        [
-            h.strip() + ":*" if ":" not in h else h.strip()
-            for h in extra_hosts.split(",")
-        ]
-    )
+    for h in extra_hosts.split(","):
+        host_val = h.strip()
+        if not host_val:
+            continue
+        allowed_hosts.append(host_val)
+        if ":" not in host_val:
+            allowed_hosts.append(f"{host_val}:*")
 
 mcp = FastMCP(
     "Profile_MCP",
     transport_security=TransportSecuritySettings(
-        enable_dns_rebinding_protection=True,
+        enable_dns_rebinding_protection=bool(extra_hosts),
         allowed_hosts=allowed_hosts,
         allowed_origins=["http://127.0.0.1:*", "http://localhost:*"],
     ),
