@@ -332,3 +332,99 @@ def test_agent_evals_instance_builder_and_custom_rubric_specs():
             assert parsed == {"score": 0.75, "explanation": "3 of 4 rubrics met"}
 
 
+def test_quality_flywheel_baseline_vs_optimized_and_loss_clusters():
+    """Verifies Quality Flywheel baseline v0 policy failures, loss cluster extraction, and metric lift table."""
+    import json
+
+    from scripts.run_agent_evals import (
+        DEFAULT_DATASET_PATH,
+        evaluate_trajectory_policy_compliance,
+    )
+    from scripts.run_quality_flywheel_demo import (
+        BASELINE_V0_DATASET_PATH,
+        build_root_router_agent_configs,
+        compute_flywheel_comparison_table,
+        extract_loss_clusters_from_run,
+    )
+
+    agent_configs = build_root_router_agent_configs()
+    assert "RootRouter" in agent_configs
+    assert "BookingOrchestrator" in agent_configs
+
+    with open(BASELINE_V0_DATASET_PATH, encoding="utf-8") as f:
+        baseline_cases = json.load(f)
+    with open(DEFAULT_DATASET_PATH, encoding="utf-8") as f:
+        optimized_cases = json.load(f)
+
+    assert len(baseline_cases) == 3
+    baseline_scores = [evaluate_trajectory_policy_compliance(c)["score"] for c in baseline_cases]
+    optimized_scores = [evaluate_trajectory_policy_compliance(c)["score"] for c in optimized_cases]
+
+    assert all(s < 1.0 for s in baseline_scores)
+    assert all(s == 1.0 for s in optimized_scores)
+
+    mock_baseline_run = {
+        "evaluationResults": {
+            "summaryMetrics": {
+                "metrics": {
+                    "multi_turn_task_success_v1/AVERAGE": 0.3333,
+                    "multi_turn_tool_use_quality_v1/AVERAGE": 0.0,
+                    "multi_turn_trajectory_quality_v1/AVERAGE": 0.2222,
+                    "travel_concierge_rubric_quality_v1/AVERAGE": 0.25,
+                }
+            },
+            "lossAnalysisResults": [
+                {
+                    "config": {"metric": "multi_turn_tool_use_quality_v1", "candidate": "RootRouter"},
+                    "clusters": [
+                        {
+                            "clusterId": "c1",
+                            "taxonomyEntry": {
+                                "l1Category": "Hallucination",
+                                "l2Category": "Hallucination of Action",
+                                "description": "Verbal confirmation without booking tool execution.",
+                            },
+                            "itemCount": 1,
+                            "examples": [
+                                {
+                                    "failedRubrics": [
+                                        {"classificationRationale": "Fabricated confirmation ID."}
+                                    ]
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ],
+        }
+    }
+    mock_optimized_run = {
+        "evaluationResults": {
+            "summaryMetrics": {
+                "metrics": {
+                    "multi_turn_task_success_v1/AVERAGE": 1.0,
+                    "multi_turn_tool_use_quality_v1/AVERAGE": 1.0,
+                    "multi_turn_trajectory_quality_v1/AVERAGE": 0.9778,
+                    "travel_concierge_rubric_quality_v1/AVERAGE": 0.9167,
+                }
+            }
+        }
+    }
+
+    clusters = extract_loss_clusters_from_run(mock_baseline_run)
+    assert len(clusters) == 1
+    assert clusters[0]["l2_category"] == "Hallucination of Action"
+
+    comparison = compute_flywheel_comparison_table(
+        baseline_run=mock_baseline_run,
+        optimized_run=mock_optimized_run,
+        baseline_code_scores=baseline_scores,
+        optimized_code_scores=optimized_scores,
+    )
+    by_metric = {r["metric"]: r for r in comparison}
+    assert by_metric["multi_turn_task_success_v1"]["delta"] > 0.6
+    assert by_metric["custom_code_trajectory_policy_compliance"]["optimized_v1_score"] == 1.0
+    assert by_metric["custom_code_trajectory_policy_compliance"]["delta"] > 0.3
+
+
+

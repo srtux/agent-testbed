@@ -40,6 +40,7 @@ test-remote = "scripts.test_runner:remote"
 traffic-loop = "scripts.traffic_loop:main"
 verify-traces = "scripts.test_runner:verify_traces"
 run-agent-evals = "scripts.run_agent_evals:main"
+run-quality-flywheel-demo = "scripts.run_quality_flywheel_demo:main"
 
 [build-system]
 requires = ["hatchling"]

@@ -1,0 +1,14 @@
+[
+  {
+    "scenario_id": "sim_scenario_001",
+    "test_case_title": "Multi-Segment Itinerary Change",
+    "starting_prompt": "I need to plan a complex business trip from JFK to LHR leaving on 2026-10-20. I need a one-way flight, a 5-night hotel stay in London, a luxury rental car, and the weather forecast for London so I know what to pack. Please get me the options.",
+    "conversation_plan": "The user requests a multi-segment trip without initially providing a user ID. When prompted for authentication details, the user will provide the ID 'M-67890'. After the agent presents the initial search results with explicit prices, the user will reject the luxury rental car due to cost and request to swap it for an economy car. When the agent presents the updated unified itinerary with the economy car and all explicit prices, the user will explicitly confirm and authorize the booking."
+  },
+  {
+    "scenario_id": "sim_scenario_002",
+    "test_case_title": "Failed Auth and Trip Expansion",
+    "starting_prompt": "Book me a flight from SFO to NRT on 2026-11-10. My user ID is M-11111.",
+    "conversation_plan": "The user attempts to start a booking using an invalid user ID ('M-11111'). When the agent notifies the user of the authentication failure and asks for a valid ID, the user provides 'M-12345'. Upon seeing the initial flight options, the user decides to expand the trip by adding a 3-night hotel stay in Tokyo and requesting the weather forecast. When the agent presents the fully updated unified itinerary with flight, hotel, weather, and prices, the user confirms the booking."
+  }
+]

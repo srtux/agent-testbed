@@ -64,4 +64,7 @@ apply_output*.txt
 # Dynamically generated service mappings
 terraform_service_urls.json
 agent_engine_outputs.json
+evals/eval_report.json
+evals/quality_flywheel_demo_report.json
+
 

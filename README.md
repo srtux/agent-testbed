@@ -337,6 +337,27 @@ This project includes unit and integration tests driven by `uv`.
    ROOT_ROUTER_URL="https://my-router-url.a.run.app/chat" uv run test-remote
    ```
 
+3. **Agent Evaluation (Online + Offline Custom Rubrics)**:
+   Register custom rubric `EvaluationMetric` resources, provision continuous `OnlineEvaluator` resources (100% OTel GenAI trace sampling on `RootRouter` and `BookingOrchestrator`), and run offline multi-turn evaluations:
+   ```bash
+   uv run run-agent-evals --project-id "$GOOGLE_CLOUD_PROJECT" --location us-central1 --mode all
+   ```
+
+4. **Agent Simulation & Quality Flywheel Demo**:
+   Execute the end-to-end Quality Flywheel workflow:
+   1. Synthesize multi-turn `UserScenario` test cases via `:generateUserScenarios`.
+   2. Run multi-turn simulated conversations (`gemini-2.5-flash` User Simulator) against the live `RootRouter` Reasoning Engine and evaluate with `EvaluationRun`.
+   3. Evaluate a baseline `v0` agent dataset (`evals/flywheel_baseline_v0_dataset.json`) and extract server-side root-cause failure clusters via `:generateLossClusters`.
+   4. Optimize the agent's system instruction via `:optimizePrompt` (`evals/prompt_optimization_diff.json`) and verify the before/after metric lift on the `v1` guardrailed agent.
+   5. Provision a Cloud Monitoring Alert Policy on `aiplatform.googleapis.com/online_evaluator/scores`.
+   ```bash
+   # Fast demo playback reusing existing EvaluationRuns (~15s):
+   uv run run-quality-flywheel-demo --project-id "$GOOGLE_CLOUD_PROJECT" --location us-central1 --reuse-existing-runs
+
+   # Full live re-execution of all EvaluationRuns:
+   uv run run-quality-flywheel-demo --project-id "$GOOGLE_CLOUD_PROJECT" --location us-central1
+   ```
+
 ## Cloud Infrastructure (Terraform)
 
 The project uses Terraform to manage cross-provider resources (Cloud Run, GKE, IAM, and Vertex AI Agents).
