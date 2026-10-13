@@ -96,9 +96,11 @@ def test_httpx_async_client_oidc_and_host_injection(monkeypatch):
     """Verifies that httpx.AsyncClient and httpx.Client inject Authorization and Host headers for PSC ILB targets."""
     import asyncio
     from unittest.mock import patch
+
     import httpx
     from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
     from opentelemetry.instrumentation.requests import RequestsInstrumentor
+
     from testbed_utils.telemetry import _setup_oidc_auth
 
     monkeypatch.setenv("FLIGHT_SPECIALIST_URL", "http://10.128.0.103/chat")
@@ -151,6 +153,7 @@ def test_extract_agent_reply_sse_and_json():
 def test_dynamic_user_prompt_llm_and_fallback():
     """Verifies LLM-driven dynamic user prompt generation and context-aware fallback."""
     from unittest.mock import MagicMock, patch
+
     from traffic_generator.main import (
         _build_persona,
         _fallback_next_user_prompt,
@@ -223,4 +226,109 @@ def test_dynamic_user_prompt_llm_and_fallback():
     # Completion detection
     assert _is_booking_complete("Your booking is confirmed! Confirmation number #9912.", 4) is True
     assert _is_booking_complete("Which hotel would you prefer?", 4) is False
+
+
+def test_agent_evals_custom_code_metric_compliance():
+    """Verifies evaluate_trajectory_policy_compliance on passing and violating multi-turn trajectories."""
+    import json
+
+    from scripts.run_agent_evals import (
+        DEFAULT_DATASET_PATH,
+        evaluate_trajectory_policy_compliance,
+    )
+
+    with open(DEFAULT_DATASET_PATH, encoding="utf-8") as f:
+        cases = json.load(f)
+
+    assert len(cases) >= 3
+    for case in cases:
+        res = evaluate_trajectory_policy_compliance(case)
+        assert res["score"] == 1.0, f"Expected 1.0 for {case['eval_case_id']}, got {res}"
+
+    # Construct a violating trajectory (calls search_flights before verify_user_session and omits transaction ID)
+    violating_case = {
+        "response": "Your flight is booked! Reservation ID: RES-100.",
+        "agent_data": {
+            "turns": [
+                {
+                    "turnIndex": 0,
+                    "events": [
+                        {
+                            "author": "RootRouter",
+                            "content": {
+                                "role": "model",
+                                "parts": [
+                                    {
+                                        "functionCall": {
+                                            "name": "search_flights",
+                                            "args": {"origin": "SFO", "destination": "JFK"},
+                                        }
+                                    }
+                                ],
+                            },
+                        },
+                        {
+                            "author": "RootRouter",
+                            "content": {
+                                "role": "user",
+                                "parts": [
+                                    {
+                                        "functionResponse": {
+                                            "name": "transfer_to_booking_orchestrator",
+                                            "response": {
+                                                "status": "CONFIRMED",
+                                                "reservation_id": "RES-100",
+                                                "transaction_id": "TXN-MISSING",
+                                            },
+                                        }
+                                    }
+                                ],
+                            },
+                        },
+                    ],
+                }
+            ]
+        },
+    }
+    bad_res = evaluate_trajectory_policy_compliance(violating_case)
+    assert bad_res["score"] < 1.0
+    assert "FAIL: Protected tool called before verify_user_session." in bad_res["explanation"]
+    assert "TXN-MISSING" in bad_res["explanation"]
+
+
+def test_agent_evals_instance_builder_and_custom_rubric_specs():
+    """Verifies _build_evaluation_instance and CUSTOM_RUBRIC_METRIC_SPECS definitions."""
+    import json
+
+    from scripts.run_agent_evals import (
+        CUSTOM_RUBRIC_METRIC_SPECS,
+        DEFAULT_DATASET_PATH,
+        _build_evaluation_instance,
+    )
+
+    with open(DEFAULT_DATASET_PATH, encoding="utf-8") as f:
+        cases = json.load(f)
+
+    instance = _build_evaluation_instance(cases[0])
+    assert instance.agent_data is not None
+    assert "RootRouter" in instance.agent_data.agents
+    assert len(instance.agent_data.turns) == 2
+    assert instance.rubric_groups is not None
+    assert "travel_concierge_rubrics" in instance.rubric_groups
+    assert len(instance.rubric_groups["travel_concierge_rubrics"].rubrics) == 3
+
+    for spec in CUSTOM_RUBRIC_METRIC_SPECS:
+        meta = spec["metric"]["metadata"]
+        assert meta["scoreRange"] == {"min": 0, "max": 1, "step": 0.25}
+        parser_cfg = (
+            spec["metric"]["llmBasedMetricSpec"]
+            .get("resultParserConfig", {})
+            .get("customCodeParserConfig")
+        )
+        if parser_cfg:
+            ns = {}
+            exec(parser_cfg["parsingFunction"], ns)
+            parsed = ns["parse_llm_response"]('```json\n{"score": 0.75, "explanation": "3 of 4 rubrics met"}\n```')
+            assert parsed == {"score": 0.75, "explanation": "3 of 4 rubrics met"}
+
 

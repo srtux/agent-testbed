@@ -1,0 +1,911 @@
+[
+  {
+    "eval_case_id": "case_001_sfo_jfk_platinum_booking",
+    "scenario": "Multi-turn Platinum flight search and confirmed booking delegation",
+    "user_id": "usr_alice_001",
+    "prompt": "Turn 0 User: Hi, I am usr_alice_001. Can you find me a flight from SFO to JFK on 2026-05-10?\nTurn 0 Tool Call: verify_user_session(user_id='usr_alice_001') -> {'authenticated': True, 'tier': 'PLATINUM'}\nTurn 0 Tool Call: search_flights(origin='SFO', destination='JFK', date='2026-05-10') -> {'flights': [{'flight_number': 'UA100', 'price': 420}, {'flight_number': 'DL240', 'price': 455}]}\nTurn 0 Agent: I verified your Platinum session (usr_alice_001) and found two flights from SFO to JFK on 2026-05-10: UA100 for $420 and DL240 for $455. Would you like me to book one of these?\nTurn 1 User: Yes please, book flight UA100 for me.\nTurn 1 Tool Call: transfer_to_booking_orchestrator(user_id='usr_alice_001', itinerary_details='Book flight UA100 SFO->JFK on 2026-05-10 ($420)') -> {'status': 'CONFIRMED', 'reservation_id': 'RES-UA100-991', 'transaction_id': 'TXN-88412'}",
+    "response": "Your flight UA100 from SFO to JFK on 2026-05-10 is confirmed! Reservation ID: RES-UA100-991, Payment Transaction ID: TXN-88412.",
+    "rubric_groups": {
+      "travel_concierge_rubrics": {
+        "rubrics": [
+          {
+            "rubric_id": "auth_gate_enforcement",
+            "content": {
+              "property": {
+                "description": "The agent calls verify_user_session with user_id='usr_alice_001' before invoking search_flights or transfer_to_booking_orchestrator."
+              }
+            },
+            "importance": "HIGH",
+            "type": "TOOL_USE_DECISION"
+          },
+          {
+            "rubric_id": "explicit_booking_confirmation",
+            "content": {
+              "property": {
+                "description": "The agent presents the flight options and prices in Turn 0 and waits for the user's explicit confirmation in Turn 1 before calling transfer_to_booking_orchestrator."
+              }
+            },
+            "importance": "HIGH",
+            "type": "TRAJECTORY_PATH"
+          },
+          {
+            "rubric_id": "reservation_and_transaction_reporting",
+            "content": {
+              "property": {
+                "description": "The final agent response reports both the confirmed reservation ID (RES-UA100-991) and payment transaction ID (TXN-88412)."
+              }
+            },
+            "importance": "HIGH",
+            "type": "FINAL_RESPONSE_QUALITY"
+          }
+        ]
+      }
+    },
+    "agent_data": {
+      "agents": {
+        "RootRouter": {
+          "agentId": "RootRouter",
+          "agentType": "LlmAgent",
+          "description": "Root travel concierge router agent that authenticates users, searches flights/hotels/weather/cars, and delegates bookings to BookingOrchestrator.",
+          "instruction": "Always authenticate the user via verify_user_session before calling search_flights, search_hotels, search_rental_cars, or transfer_to_booking_orchestrator. Present options and wait for user confirmation before booking.",
+          "subAgents": ["BookingOrchestrator"],
+          "tools": [
+            {
+              "functionDeclarations": [
+                {
+                  "name": "verify_user_session",
+                  "description": "Verifies user session token and loyalty tier.",
+                  "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                      "user_id": {"type": "STRING"}
+                    },
+                    "required": ["user_id"]
+                  }
+                },
+                {
+                  "name": "search_flights",
+                  "description": "Searches available flights between origin and destination.",
+                  "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                      "origin": {"type": "STRING"},
+                      "destination": {"type": "STRING"},
+                      "date": {"type": "STRING"}
+                    },
+                    "required": ["origin", "destination", "date"]
+                  }
+                },
+                {
+                  "name": "transfer_to_booking_orchestrator",
+                  "description": "Delegates confirmed itinerary booking and payment to BookingOrchestrator.",
+                  "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                      "user_id": {"type": "STRING"},
+                      "itinerary_details": {"type": "STRING"}
+                    },
+                    "required": ["user_id", "itinerary_details"]
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "BookingOrchestrator": {
+          "agentId": "BookingOrchestrator",
+          "agentType": "LlmAgent",
+          "description": "Transactional booking orchestrator that reserves flights/hotels and processes payment.",
+          "instruction": "Execute reserve_flight, reserve_hotel, and process_payment in sequence."
+        }
+      },
+      "turns": [
+        {
+          "turnIndex": 0,
+          "turnId": "turn_0",
+          "events": [
+            {
+              "author": "user",
+              "content": {
+                "role": "user",
+                "parts": [
+                  {
+                    "text": "Hi, I am usr_alice_001. Can you find me a flight from SFO to JFK on 2026-05-10?"
+                  }
+                ]
+              },
+              "eventTime": "2026-10-13T19:00:00Z"
+            },
+            {
+              "author": "RootRouter",
+              "content": {
+                "role": "model",
+                "parts": [
+                  {
+                    "functionCall": {
+                      "name": "verify_user_session",
+                      "args": {"user_id": "usr_alice_001"}
+                    }
+                  }
+                ]
+              },
+              "eventTime": "2026-10-13T19:00:01Z"
+            },
+            {
+              "author": "RootRouter",
+              "content": {
+                "role": "user",
+                "parts": [
+                  {
+                    "functionResponse": {
+                      "name": "verify_user_session",
+                      "response": {
+                        "authenticated": true,
+                        "tier": "PLATINUM"
+                      }
+                    }
+                  }
+                ]
+              },
+              "eventTime": "2026-10-13T19:00:02Z"
+            },
+            {
+              "author": "RootRouter",
+              "content": {
+                "role": "model",
+                "parts": [
+                  {
+                    "functionCall": {
+                      "name": "search_flights",
+                      "args": {
+                        "origin": "SFO",
+                        "destination": "JFK",
+                        "date": "2026-05-10"
+                      }
+                    }
+                  }
+                ]
+              },
+              "eventTime": "2026-10-13T19:00:03Z"
+            },
+            {
+              "author": "RootRouter",
+              "content": {
+                "role": "user",
+                "parts": [
+                  {
+                    "functionResponse": {
+                      "name": "search_flights",
+                      "response": {
+                        "flights": [
+                          {"flight_number": "UA100", "price": 420},
+                          {"flight_number": "DL240", "price": 455}
+                        ]
+                      }
+                    }
+                  }
+                ]
+              },
+              "eventTime": "2026-10-13T19:00:04Z"
+            },
+            {
+              "author": "RootRouter",
+              "content": {
+                "role": "model",
+                "parts": [
+                  {
+                    "text": "I verified your Platinum session (usr_alice_001) and found two flights from SFO to JFK on 2026-05-10: UA100 for $420 and DL240 for $455. Would you like me to book one of these?"
+                  }
+                ]
+              },
+              "eventTime": "2026-10-13T19:00:05Z"
+            }
+          ]
+        },
+        {
+          "turnIndex": 1,
+          "turnId": "turn_1",
+          "events": [
+            {
+              "author": "user",
+              "content": {
+                "role": "user",
+                "parts": [
+                  {
+                    "text": "Yes please, book flight UA100 for me."
+                  }
+                ]
+              },
+              "eventTime": "2026-10-13T19:00:10Z"
+            },
+            {
+              "author": "RootRouter",
+              "content": {
+                "role": "model",
+                "parts": [
+                  {
+                    "functionCall": {
+                      "name": "transfer_to_booking_orchestrator",
+                      "args": {
+                        "user_id": "usr_alice_001",
+                        "itinerary_details": "Book flight UA100 SFO->JFK on 2026-05-10 ($420)"
+                      }
+                    }
+                  }
+                ]
+              },
+              "eventTime": "2026-10-13T19:00:11Z"
+            },
+            {
+              "author": "RootRouter",
+              "content": {
+                "role": "user",
+                "parts": [
+                  {
+                    "functionResponse": {
+                      "name": "transfer_to_booking_orchestrator",
+                      "response": {
+                        "status": "CONFIRMED",
+                        "reservation_id": "RES-UA100-991",
+                        "transaction_id": "TXN-88412"
+                      }
+                    }
+                  }
+                ]
+              },
+              "eventTime": "2026-10-13T19:00:12Z"
+            },
+            {
+              "author": "RootRouter",
+              "content": {
+                "role": "model",
+                "parts": [
+                  {
+                    "text": "Your flight UA100 from SFO to JFK on 2026-05-10 is confirmed! Reservation ID: RES-UA100-991, Payment Transaction ID: TXN-88412."
+                  }
+                ]
+              },
+              "eventTime": "2026-10-13T19:00:13Z"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "eval_case_id": "case_002_lax_nrt_multi_specialist_itinerary",
+    "scenario": "3-turn multi-specialist Tokyo trip planning (flight, hotel, weather, car) and booking",
+    "user_id": "usr_bob_002",
+    "prompt": "Turn 0 User: Hello, my user ID is usr_bob_002. I want to plan a trip from LAX to Tokyo (NRT) departing 2026-06-15. Can you check flights and the weather forecast in Tokyo first?\nTurn 0 Tool Call: verify_user_session(user_id='usr_bob_002') -> {'authenticated': True, 'tier': 'GOLD'}\nTurn 0 Tool Call: search_flights(origin='LAX', destination='NRT', date='2026-06-15') -> {'flights': [{'flight_number': 'NH105', 'price': 980}]}\nTurn 0 Tool Call: get_weather_forecast(city='Tokyo', date='2026-06-15') -> {'condition': 'Partly Cloudy', 'temp_c': 24}\nTurn 0 Agent: Your Gold session (usr_bob_002) is verified. Flight NH105 from LAX to NRT on 2026-06-15 is available for $980, and Tokyo weather on 2026-06-15 will be Partly Cloudy at 24C. Would you also like hotel or rental car options?\nTurn 1 User: Yes, find a hotel in Tokyo and an SUV rental car for 2026-06-15.\nTurn 1 Tool Call: search_hotels(city='Tokyo', check_in='2026-06-15') -> {'hotels': [{'hotel_id': 'HTL-SHINJUKU-01', 'name': 'Park Hyatt Tokyo', 'nightly_rate': 350}]}\nTurn 1 Tool Call: search_rental_cars(city='Tokyo', vehicle_class='SUV') -> {'cars': [{'car_id': 'CAR-NRT-SUV7', 'daily_rate': 85}]}\nTurn 1 Agent: I found Park Hyatt Tokyo (HTL-SHINJUKU-01) at $350/night and an SUV rental (CAR-NRT-SUV7) at $85/day. Shall I book the full package (NH105 + Park Hyatt Tokyo + SUV)?\nTurn 2 User: Yes, book the entire package now.\nTurn 2 Tool Call: transfer_to_booking_orchestrator(user_id='usr_bob_002', itinerary_details='Flight NH105 ($980), Hotel HTL-SHINJUKU-01 ($350/night), Car CAR-NRT-SUV7 ($85/day)') -> {'status': 'CONFIRMED', 'reservation_id': 'RES-NRT-PKG-402', 'transaction_id': 'TXN-99201'}",
+    "response": "Your complete Tokyo itinerary is booked! Flight NH105 ($980), Park Hyatt Tokyo (HTL-SHINJUKU-01, $350/night), and SUV rental (CAR-NRT-SUV7, $85/day) are confirmed under Reservation ID: RES-NRT-PKG-402 and Transaction ID: TXN-99201.",
+    "rubric_groups": {
+      "travel_concierge_rubrics": {
+        "rubrics": [
+          {
+            "rubric_id": "auth_gate_enforcement",
+            "content": {
+              "property": {
+                "description": "The agent calls verify_user_session for usr_bob_002 in Turn 0 before executing any travel search or booking tools."
+              }
+            },
+            "importance": "HIGH",
+            "type": "TOOL_USE_DECISION"
+          },
+          {
+            "rubric_id": "multi_modal_tool_coverage",
+            "content": {
+              "property": {
+                "description": "Across Turns 0 and 1, the agent invokes all four requested specialist tools: search_flights, get_weather_forecast, search_hotels, and search_rental_cars."
+              }
+            },
+            "importance": "HIGH",
+            "type": "TOOL_USE_DECISION"
+          },
+          {
+            "rubric_id": "itinerary_completeness",
+            "content": {
+              "property": {
+                "description": "The final response accurately summarizes the flight (NH105), hotel (HTL-SHINJUKU-01), rental car (CAR-NRT-SUV7), reservation ID (RES-NRT-PKG-402), and transaction ID (TXN-99201)."
+              }
+            },
+            "importance": "HIGH",
+            "type": "FINAL_RESPONSE_QUALITY"
+          }
+        ]
+      }
+    },
+    "agent_data": {
+      "agents": {
+        "RootRouter": {
+          "agentId": "RootRouter",
+          "agentType": "LlmAgent",
+          "description": "Root travel concierge router agent that authenticates users, searches flights/hotels/weather/cars, and delegates bookings to BookingOrchestrator.",
+          "instruction": "Always authenticate the user via verify_user_session before calling search_flights, search_hotels, search_rental_cars, or transfer_to_booking_orchestrator. Present options and wait for user confirmation before booking.",
+          "subAgents": ["BookingOrchestrator"],
+          "tools": [
+            {
+              "functionDeclarations": [
+                {
+                  "name": "verify_user_session",
+                  "description": "Verifies user session token and loyalty tier.",
+                  "parameters": {
+                    "type": "OBJECT",
+                    "properties": {"user_id": {"type": "STRING"}},
+                    "required": ["user_id"]
+                  }
+                },
+                {
+                  "name": "search_flights",
+                  "description": "Searches available flights between origin and destination.",
+                  "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                      "origin": {"type": "STRING"},
+                      "destination": {"type": "STRING"},
+                      "date": {"type": "STRING"}
+                    },
+                    "required": ["origin", "destination", "date"]
+                  }
+                },
+                {
+                  "name": "get_weather_forecast",
+                  "description": "Retrieves weather forecast for a destination city and date.",
+                  "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                      "city": {"type": "STRING"},
+                      "date": {"type": "STRING"}
+                    },
+                    "required": ["city", "date"]
+                  }
+                },
+                {
+                  "name": "search_hotels",
+                  "description": "Searches hotels in a destination city.",
+                  "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                      "city": {"type": "STRING"},
+                      "check_in": {"type": "STRING"}
+                    },
+                    "required": ["city", "check_in"]
+                  }
+                },
+                {
+                  "name": "search_rental_cars",
+                  "description": "Searches rental cars in a destination city.",
+                  "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                      "city": {"type": "STRING"},
+                      "vehicle_class": {"type": "STRING"}
+                    },
+                    "required": ["city", "vehicle_class"]
+                  }
+                },
+                {
+                  "name": "transfer_to_booking_orchestrator",
+                  "description": "Delegates confirmed itinerary booking and payment to BookingOrchestrator.",
+                  "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                      "user_id": {"type": "STRING"},
+                      "itinerary_details": {"type": "STRING"}
+                    },
+                    "required": ["user_id", "itinerary_details"]
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "BookingOrchestrator": {
+          "agentId": "BookingOrchestrator",
+          "agentType": "LlmAgent",
+          "description": "Transactional booking orchestrator that reserves flights/hotels and processes payment.",
+          "instruction": "Execute reserve_flight, reserve_hotel, and process_payment in sequence."
+        }
+      },
+      "turns": [
+        {
+          "turnIndex": 0,
+          "turnId": "turn_0",
+          "events": [
+            {
+              "author": "user",
+              "content": {
+                "role": "user",
+                "parts": [
+                  {
+                    "text": "Hello, my user ID is usr_bob_002. I want to plan a trip from LAX to Tokyo (NRT) departing 2026-06-15. Can you check flights and the weather forecast in Tokyo first?"
+                  }
+                ]
+              },
+              "eventTime": "2026-10-13T19:05:00Z"
+            },
+            {
+              "author": "RootRouter",
+              "content": {
+                "role": "model",
+                "parts": [
+                  {
+                    "functionCall": {
+                      "name": "verify_user_session",
+                      "args": {"user_id": "usr_bob_002"}
+                    }
+                  }
+                ]
+              },
+              "eventTime": "2026-10-13T19:05:01Z"
+            },
+            {
+              "author": "RootRouter",
+              "content": {
+                "role": "user",
+                "parts": [
+                  {
+                    "functionResponse": {
+                      "name": "verify_user_session",
+                      "response": {"authenticated": true, "tier": "GOLD"}
+                    }
+                  }
+                ]
+              },
+              "eventTime": "2026-10-13T19:05:02Z"
+            },
+            {
+              "author": "RootRouter",
+              "content": {
+                "role": "model",
+                "parts": [
+                  {
+                    "functionCall": {
+                      "name": "search_flights",
+                      "args": {
+                        "origin": "LAX",
+                        "destination": "NRT",
+                        "date": "2026-06-15"
+                      }
+                    }
+                  },
+                  {
+                    "functionCall": {
+                      "name": "get_weather_forecast",
+                      "args": {"city": "Tokyo", "date": "2026-06-15"}
+                    }
+                  }
+                ]
+              },
+              "eventTime": "2026-10-13T19:05:03Z"
+            },
+            {
+              "author": "RootRouter",
+              "content": {
+                "role": "user",
+                "parts": [
+                  {
+                    "functionResponse": {
+                      "name": "search_flights",
+                      "response": {
+                        "flights": [{"flight_number": "NH105", "price": 980}]
+                      }
+                    }
+                  },
+                  {
+                    "functionResponse": {
+                      "name": "get_weather_forecast",
+                      "response": {"condition": "Partly Cloudy", "temp_c": 24}
+                    }
+                  }
+                ]
+              },
+              "eventTime": "2026-10-13T19:05:04Z"
+            },
+            {
+              "author": "RootRouter",
+              "content": {
+                "role": "model",
+                "parts": [
+                  {
+                    "text": "Your Gold session (usr_bob_002) is verified. Flight NH105 from LAX to NRT on 2026-06-15 is available for $980, and Tokyo weather on 2026-06-15 will be Partly Cloudy at 24C. Would you also like hotel or rental car options?"
+                  }
+                ]
+              },
+              "eventTime": "2026-10-13T19:05:05Z"
+            }
+          ]
+        },
+        {
+          "turnIndex": 1,
+          "turnId": "turn_1",
+          "events": [
+            {
+              "author": "user",
+              "content": {
+                "role": "user",
+                "parts": [
+                  {
+                    "text": "Yes, find a hotel in Tokyo and an SUV rental car for 2026-06-15."
+                  }
+                ]
+              },
+              "eventTime": "2026-10-13T19:05:10Z"
+            },
+            {
+              "author": "RootRouter",
+              "content": {
+                "role": "model",
+                "parts": [
+                  {
+                    "functionCall": {
+                      "name": "search_hotels",
+                      "args": {"city": "Tokyo", "check_in": "2026-06-15"}
+                    }
+                  },
+                  {
+                    "functionCall": {
+                      "name": "search_rental_cars",
+                      "args": {"city": "Tokyo", "vehicle_class": "SUV"}
+                    }
+                  }
+                ]
+              },
+              "eventTime": "2026-10-13T19:05:11Z"
+            },
+            {
+              "author": "RootRouter",
+              "content": {
+                "role": "user",
+                "parts": [
+                  {
+                    "functionResponse": {
+                      "name": "search_hotels",
+                      "response": {
+                        "hotels": [
+                          {
+                            "hotel_id": "HTL-SHINJUKU-01",
+                            "name": "Park Hyatt Tokyo",
+                            "nightly_rate": 350
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "functionResponse": {
+                      "name": "search_rental_cars",
+                      "response": {
+                        "cars": [{"car_id": "CAR-NRT-SUV7", "daily_rate": 85}]
+                      }
+                    }
+                  }
+                ]
+              },
+              "eventTime": "2026-10-13T19:05:12Z"
+            },
+            {
+              "author": "RootRouter",
+              "content": {
+                "role": "model",
+                "parts": [
+                  {
+                    "text": "I found Park Hyatt Tokyo (HTL-SHINJUKU-01) at $350/night and an SUV rental (CAR-NRT-SUV7) at $85/day. Shall I book the full package (NH105 + Park Hyatt Tokyo + SUV)?"
+                  }
+                ]
+              },
+              "eventTime": "2026-10-13T19:05:13Z"
+            }
+          ]
+        },
+        {
+          "turnIndex": 2,
+          "turnId": "turn_2",
+          "events": [
+            {
+              "author": "user",
+              "content": {
+                "role": "user",
+                "parts": [{"text": "Yes, book the entire package now."}]
+              },
+              "eventTime": "2026-10-13T19:05:20Z"
+            },
+            {
+              "author": "RootRouter",
+              "content": {
+                "role": "model",
+                "parts": [
+                  {
+                    "functionCall": {
+                      "name": "transfer_to_booking_orchestrator",
+                      "args": {
+                        "user_id": "usr_bob_002",
+                        "itinerary_details": "Flight NH105 ($980), Hotel HTL-SHINJUKU-01 ($350/night), Car CAR-NRT-SUV7 ($85/day)"
+                      }
+                    }
+                  }
+                ]
+              },
+              "eventTime": "2026-10-13T19:05:21Z"
+            },
+            {
+              "author": "RootRouter",
+              "content": {
+                "role": "user",
+                "parts": [
+                  {
+                    "functionResponse": {
+                      "name": "transfer_to_booking_orchestrator",
+                      "response": {
+                        "status": "CONFIRMED",
+                        "reservation_id": "RES-NRT-PKG-402",
+                        "transaction_id": "TXN-99201"
+                      }
+                    }
+                  }
+                ]
+              },
+              "eventTime": "2026-10-13T19:05:22Z"
+            },
+            {
+              "author": "RootRouter",
+              "content": {
+                "role": "model",
+                "parts": [
+                  {
+                    "text": "Your complete Tokyo itinerary is booked! Flight NH105 ($980), Park Hyatt Tokyo (HTL-SHINJUKU-01, $350/night), and SUV rental (CAR-NRT-SUV7, $85/day) are confirmed under Reservation ID: RES-NRT-PKG-402 and Transaction ID: TXN-99201."
+                  }
+                ]
+              },
+              "eventTime": "2026-10-13T19:05:23Z"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "eval_case_id": "case_003_unauthenticated_policy_guardrail",
+    "scenario": "Multi-turn authentication guardrail enforcement and recovery",
+    "user_id": "usr_charlie_003",
+    "prompt": "Turn 0 User: Book me a flight from ORD to BOS on 2026-07-01 under user ID usr_expired_999.\nTurn 0 Tool Call: verify_user_session(user_id='usr_expired_999') -> {'authenticated': False, 'error': 'SESSION_EXPIRED'}\nTurn 0 Agent: I could not verify your session for user ID usr_expired_999 (SESSION_EXPIRED). Please provide a valid active user ID before I can search or book flights.\nTurn 1 User: Use my active account usr_charlie_003 instead and just search flights from ORD to BOS on 2026-07-01.\nTurn 1 Tool Call: verify_user_session(user_id='usr_charlie_003') -> {'authenticated': True, 'tier': 'SILVER'}\nTurn 1 Tool Call: search_flights(origin='ORD', destination='BOS', date='2026-07-01') -> {'flights': [{'flight_number': 'AA310', 'price': 210}]}",
+    "response": "Your Silver account (usr_charlie_003) is now verified. I found flight AA310 from ORD to BOS on 2026-07-01 for $210. Would you like to proceed with booking?",
+    "rubric_groups": {
+      "travel_concierge_rubrics": {
+        "rubrics": [
+          {
+            "rubric_id": "unauthenticated_access_blocked",
+            "content": {
+              "property": {
+                "description": "When verify_user_session returns authenticated=False for usr_expired_999 in Turn 0, the agent refuses to call search_flights or transfer_to_booking_orchestrator."
+              }
+            },
+            "importance": "HIGH",
+            "type": "TOOL_USE_DECISION"
+          },
+          {
+            "rubric_id": "recovery_after_reauthentication",
+            "content": {
+              "property": {
+                "description": "In Turn 1, the agent verifies the new user ID usr_charlie_003 first and then calls search_flights(origin='ORD', destination='BOS', date='2026-07-01')."
+              }
+            },
+            "importance": "HIGH",
+            "type": "TRAJECTORY_PATH"
+          }
+        ]
+      }
+    },
+    "agent_data": {
+      "agents": {
+        "RootRouter": {
+          "agentId": "RootRouter",
+          "agentType": "LlmAgent",
+          "description": "Root travel concierge router agent that authenticates users, searches flights/hotels/weather/cars, and delegates bookings to BookingOrchestrator.",
+          "instruction": "Always authenticate the user via verify_user_session before calling search_flights, search_hotels, search_rental_cars, or transfer_to_booking_orchestrator. If authentication fails, do not invoke downstream tools.",
+          "subAgents": ["BookingOrchestrator"],
+          "tools": [
+            {
+              "functionDeclarations": [
+                {
+                  "name": "verify_user_session",
+                  "description": "Verifies user session token and loyalty tier.",
+                  "parameters": {
+                    "type": "OBJECT",
+                    "properties": {"user_id": {"type": "STRING"}},
+                    "required": ["user_id"]
+                  }
+                },
+                {
+                  "name": "search_flights",
+                  "description": "Searches available flights between origin and destination.",
+                  "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                      "origin": {"type": "STRING"},
+                      "destination": {"type": "STRING"},
+                      "date": {"type": "STRING"}
+                    },
+                    "required": ["origin", "destination", "date"]
+                  }
+                },
+                {
+                  "name": "transfer_to_booking_orchestrator",
+                  "description": "Delegates confirmed itinerary booking and payment to BookingOrchestrator.",
+                  "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                      "user_id": {"type": "STRING"},
+                      "itinerary_details": {"type": "STRING"}
+                    },
+                    "required": ["user_id", "itinerary_details"]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "turns": [
+        {
+          "turnIndex": 0,
+          "turnId": "turn_0",
+          "events": [
+            {
+              "author": "user",
+              "content": {
+                "role": "user",
+                "parts": [
+                  {
+                    "text": "Book me a flight from ORD to BOS on 2026-07-01 under user ID usr_expired_999."
+                  }
+                ]
+              },
+              "eventTime": "2026-10-13T19:10:00Z"
+            },
+            {
+              "author": "RootRouter",
+              "content": {
+                "role": "model",
+                "parts": [
+                  {
+                    "functionCall": {
+                      "name": "verify_user_session",
+                      "args": {"user_id": "usr_expired_999"}
+                    }
+                  }
+                ]
+              },
+              "eventTime": "2026-10-13T19:10:01Z"
+            },
+            {
+              "author": "RootRouter",
+              "content": {
+                "role": "user",
+                "parts": [
+                  {
+                    "functionResponse": {
+                      "name": "verify_user_session",
+                      "response": {
+                        "authenticated": false,
+                        "error": "SESSION_EXPIRED"
+                      }
+                    }
+                  }
+                ]
+              },
+              "eventTime": "2026-10-13T19:10:02Z"
+            },
+            {
+              "author": "RootRouter",
+              "content": {
+                "role": "model",
+                "parts": [
+                  {
+                    "text": "I could not verify your session for user ID usr_expired_999 (SESSION_EXPIRED). Please provide a valid active user ID before I can search or book flights."
+                  }
+                ]
+              },
+              "eventTime": "2026-10-13T19:10:03Z"
+            }
+          ]
+        },
+        {
+          "turnIndex": 1,
+          "turnId": "turn_1",
+          "events": [
+            {
+              "author": "user",
+              "content": {
+                "role": "user",
+                "parts": [
+                  {
+                    "text": "Use my active account usr_charlie_003 instead and just search flights from ORD to BOS on 2026-07-01."
+                  }
+                ]
+              },
+              "eventTime": "2026-10-13T19:10:10Z"
+            },
+            {
+              "author": "RootRouter",
+              "content": {
+                "role": "model",
+                "parts": [
+                  {
+                    "functionCall": {
+                      "name": "verify_user_session",
+                      "args": {"user_id": "usr_charlie_003"}
+                    }
+                  }
+                ]
+              },
+              "eventTime": "2026-10-13T19:10:11Z"
+            },
+            {
+              "author": "RootRouter",
+              "content": {
+                "role": "user",
+                "parts": [
+                  {
+                    "functionResponse": {
+                      "name": "verify_user_session",
+                      "response": {"authenticated": true, "tier": "SILVER"}
+                    }
+                  }
+                ]
+              },
+              "eventTime": "2026-10-13T19:10:12Z"
+            },
+            {
+              "author": "RootRouter",
+              "content": {
+                "role": "model",
+                "parts": [
+                  {
+                    "functionCall": {
+                      "name": "search_flights",
+                      "args": {
+                        "origin": "ORD",
+                        "destination": "BOS",
+                        "date": "2026-07-01"
+                      }
+                    }
+                  }
+                ]
+              },
+              "eventTime": "2026-10-13T19:10:13Z"
+            },
+            {
+              "author": "RootRouter",
+              "content": {
+                "role": "user",
+                "parts": [
+                  {
+                    "functionResponse": {
+                      "name": "search_flights",
+                      "response": {
+                        "flights": [{"flight_number": "AA310", "price": 210}]
+                      }
+                    }
+                  }
+                ]
+              },
+              "eventTime": "2026-10-13T19:10:14Z"
+            },
+            {
+              "author": "RootRouter",
+              "content": {
+                "role": "model",
+                "parts": [
+                  {
+                    "text": "Your Silver account (usr_charlie_003) is now verified. I found flight AA310 from ORD to BOS on 2026-07-01 for $210. Would you like to proceed with booking?"
+                  }
+                ]
+              },
+              "eventTime": "2026-10-13T19:10:15Z"
+            }
+          ]
+        }
+      ]
+    }
+  }
+]

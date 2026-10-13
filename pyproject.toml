@@ -23,8 +23,12 @@ dependencies = [
     "python-dotenv>=1.2.2",
     "google-auth",
     "google-api-python-client",
+    "google-cloud-aiplatform[evaluation]",
     "grpcio",
+    "pandas",
+    "pyyaml",
     "requests",
+    "tqdm",
 ]
 
 [project.scripts]
@@ -35,6 +39,7 @@ test-local = "scripts.test_runner:local"
 test-remote = "scripts.test_runner:remote"
 traffic-loop = "scripts.traffic_loop:main"
 verify-traces = "scripts.test_runner:verify_traces"
+run-agent-evals = "scripts.run_agent_evals:main"
 
 [build-system]
 requires = ["hatchling"]
