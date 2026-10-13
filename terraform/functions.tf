@@ -25,11 +25,13 @@ resource "google_cloudfunctions2_function" "traffic_generator" {
     service_account_email = google_service_account.test_runner.email
 
     environment_variables = {
-      ROOT_ROUTER_URL              = var.root_router_url
-      GOOGLE_CLOUD_PROJECT         = var.project_id
-      OTEL_EXPORTER_OTLP_ENDPOINT  = "https://telemetry.googleapis.com"
-      OTEL_SERVICE_NAME            = "traffic-generator"
+      ROOT_ROUTER_URL               = var.root_router_url
+      GOOGLE_CLOUD_PROJECT          = var.project_id
+      OTEL_EXPORTER_OTLP_ENDPOINT   = "https://telemetry.googleapis.com"
+      OTEL_SERVICE_NAME             = "traffic-generator"
       OTEL_SEMCONV_STABILITY_OPT_IN = "gen_ai_latest_experimental"
+      USER_SIMULATOR_MODEL          = "gemini-2.5-flash"
+      MAX_TURNS                     = "5"
     }
   }
 
