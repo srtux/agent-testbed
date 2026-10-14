@@ -45,6 +45,18 @@ PREDEFINED_MULTI_TURN_METRICS = (
     "multi_turn_trajectory_quality_v1",
 )
 
+CONTEXT_TEMPLATE_BLOCK = (
+    "{% if agent_data %}Multi-Turn Agent Session Trajectory:\n{agent_data}\n\n{% endif %}"
+    "{% if events %}Session Events & Tool Invocations:\n{events}\n\n{% endif %}"
+    "{% if prompt %}User Prompt:\n{prompt}\n\n{% endif %}"
+    "{% if response %}Agent Response:\n{response}\n\n{% endif %}"
+    "{% if input_text %}User Input:\n{input_text}\n\n{% endif %}"
+    "{% if output_text %}Agent Output:\n{output_text}\n\n{% endif %}"
+    "{% if intermediate_steps %}Tool Invocations:\n{intermediate_steps}\n\n{% endif %}"
+    "{% if tool_declarations %}Available Tool Declarations:\n{tool_declarations}\n\n{% endif %}"
+    "{% if developer_instruction %}Developer Instructions:\n{developer_instruction}\n\n{% endif %}"
+)
+
 CUSTOM_RUBRIC_METRIC_SPECS: list[dict[str, Any]] = [
     {
         "title": "travel_concierge_rubric_quality_v1",
@@ -57,15 +69,15 @@ CUSTOM_RUBRIC_METRIC_SPECS: list[dict[str, Any]] = [
         "metric": {
             "llmBasedMetricSpec": {
                 "metricPromptTemplate": (
-                    "You are an expert Travel Concierge Quality Auditor evaluating an AI agent response.\n"
-                    "User Prompt / Conversation Context:\n{input_text}\n\n"
-                    "Agent Response:\n{output_text}\n\n"
+                    "You are an expert Travel Concierge Quality Auditor evaluating an AI agent trajectory.\n\n"
+                    f"{CONTEXT_TEMPLATE_BLOCK}"
                     "Evaluate the response against the following 4 domain rubric criteria (0.25 points each, total 0.0 to 1.0):\n"
                     "1. Authentication Gate (0.25): The agent verifies or references the user's session/loyalty status before executing or confirming travel searches and bookings.\n"
                     "2. Explicit Confirmation Flow (0.25): The agent clearly communicates options/prices before finalizing bookings or confirms the user's explicit selection.\n"
                     "3. Grounded Itinerary Details (0.25): Flight numbers, hotel names, dates, cities, and prices are specific and internally consistent.\n"
                     "4. Actionable Next Step or Confirmation IDs (0.25): If a booking is completed, reservation/transaction IDs are provided; if in discovery/search, a clear next step is offered.\n\n"
-                    "Assign a score from {0.0, 0.25, 0.5, 0.75, 1.0} and explain which criteria passed or failed."
+                    '{% raw %}Assign a score from [0.0, 0.25, 0.5, 0.75, 1.0] and explain which criteria passed or failed.\n'
+                    'Respond ONLY with valid JSON: {"score": <0.0|0.25|0.5|0.75|1.0>, "explanation": "<concise rubric rationale>"}{% endraw %}'
                 )
             },
             "metadata": {
@@ -84,15 +96,15 @@ CUSTOM_RUBRIC_METRIC_SPECS: list[dict[str, Any]] = [
         "metric": {
             "llmBasedMetricSpec": {
                 "metricPromptTemplate": (
-                    "You are a Transactional Integrity Auditor evaluating a BookingOrchestrator response.\n"
-                    "Booking Request:\n{input_text}\n\n"
-                    "Orchestrator Response:\n{output_text}\n\n"
+                    "You are a Transactional Integrity Auditor evaluating a BookingOrchestrator trajectory.\n\n"
+                    f"{CONTEXT_TEMPLATE_BLOCK}"
                     "Evaluate the response against these 4 rubric criteria (0.25 points each, total 0.0 to 1.0):\n"
                     "1. Reservation Completeness (0.25): Addresses all requested travel segments (flight, hotel, car).\n"
                     "2. Loyalty & Pricing Clarity (0.25): Accurately reflects pricing or loyalty tier handling.\n"
                     "3. Payment & Transaction Confirmation (0.25): Confirms payment processing status without fabricating unsupported charges.\n"
                     "4. Structured Confirmation Output (0.25): Provides clear confirmation/reservation details for the caller.\n\n"
-                    "Assign a score from {0.0, 0.25, 0.5, 0.75, 1.0} and explain your reasoning."
+                    '{% raw %}Assign a score from [0.0, 0.25, 0.5, 0.75, 1.0] and explain your reasoning.\n'
+                    'Respond ONLY with valid JSON: {"score": <0.0|0.25|0.5|0.75|1.0>, "explanation": "<concise rubric rationale>"}{% endraw %}'
                 )
             },
             "metadata": {
@@ -111,21 +123,32 @@ CUSTOM_RUBRIC_METRIC_SPECS: list[dict[str, Any]] = [
         "metric": {
             "llmBasedMetricSpec": {
                 "metricPromptTemplate": (
-                    "Evaluate the travel concierge agent response on a 0.0 to 1.0 scale (increments of 0.25) "
-                    "for authentication hygiene, tool grounding, and itinerary clarity.\n"
-                    "User Input: {input_text}\n"
-                    "Agent Output: {output_text}\n"
-                    'Respond ONLY with valid JSON: {{"score": <0.0|0.25|0.5|0.75|1.0>, "explanation": "<concise rubric rationale>"}}'
+                    "Evaluate the travel concierge agent trajectory on a 0.0 to 1.0 scale (increments of 0.25) "
+                    "for authentication hygiene, tool grounding, and itinerary clarity.\n\n"
+                    f"{CONTEXT_TEMPLATE_BLOCK}"
+                    '{% raw %}Respond ONLY with valid JSON: {"score": <0.0|0.25|0.5|0.75|1.0>, "explanation": "<concise rubric rationale>"}{% endraw %}'
                 ),
                 "resultParserConfig": {
                     "customCodeParserConfig": {
                         "parsingFunction": (
                             "import json\n"
+                            "import re\n"
                             "def parse_llm_response(llm_response: str) -> dict:\n"
-                            "    cleaned = llm_response.strip().removeprefix('```json').removeprefix('```').removesuffix('```').strip()\n"
-                            "    data = json.loads(cleaned)\n"
+                            "    raw = (llm_response or '').strip()\n"
+                            "    cleaned = re.sub(r'^```(?:json)?\\s*|\\s*```$', '', raw, flags=re.DOTALL).strip()\n"
+                            "    try:\n"
+                            "        data = json.loads(cleaned)\n"
+                            "    except Exception:\n"
+                            "        match = re.search(r'(\\{.*\\})', cleaned, flags=re.DOTALL)\n"
+                            "        data = json.loads(match.group(1)) if match else {'score': 0.0, 'explanation': raw[:300]}\n"
+                            "    if isinstance(data, list) and data and isinstance(data[0], dict):\n"
+                            "        data = data[0]\n"
                             "    score = max(0.0, min(1.0, float(data.get('score', 0.0))))\n"
-                            "    return {'score': score, 'explanation': str(data.get('explanation', ''))}\n"
+                            "    return {'score': score, 'explanation': str(data.get('explanation') or data.get('reasoning') or '')}\n"
+                            "\n"
+                            "def parse_results(responses: list[str] | str) -> dict:\n"
+                            "    first = responses[0] if isinstance(responses, list) and responses else (responses if isinstance(responses, str) else '')\n"
+                            "    return parse_llm_response(str(first))\n"
                         )
                     }
                 },
@@ -286,7 +309,11 @@ def register_custom_rubric_metrics(
     location: str,
     token: str,
 ) -> dict[str, str]:
-    """Registers or reuses custom rubric metrics in Vertex AI `evaluationMetrics`.
+    """Registers or updates custom rubric metrics in Vertex AI `evaluationMetrics`.
+
+    Reuses an existing `EvaluationMetric` only when its `metricPromptTemplate`
+    and `parsingFunction` match the current spec; otherwise creates a fresh
+    `EvaluationMetric` and deletes stale duplicates with the same title.
 
     Returns a mapping from metric title to full `evaluationMetrics` resource name.
     """
@@ -294,27 +321,65 @@ def register_custom_rubric_metrics(
     existing_resp = _api_request("GET", f"{base_url}/evaluationMetrics", token)
     existing_metrics = existing_resp.get("evaluationMetrics") or []
 
-    by_title: dict[str, str] = {}
+    by_title: dict[str, list[dict[str, Any]]] = {}
     for m in existing_metrics:
         title = (m.get("metric") or {}).get("metadata", {}).get("title") or m.get("displayName")
-        score_range = (m.get("metric") or {}).get("metadata", {}).get("scoreRange")
-        if title and m.get("name") and score_range:
-            by_title[title] = m["name"]
+        if title and m.get("name"):
+            by_title.setdefault(title, []).append(m)
 
     registered: dict[str, str] = {}
     for spec in CUSTOM_RUBRIC_METRIC_SPECS:
         title = spec["title"]
-        if title in by_title:
-            registered[title] = by_title[title]
-            continue
+        desired_llm_spec = (spec.get("metric") or {}).get("llmBasedMetricSpec") or {}
+        desired_template = desired_llm_spec.get("metricPromptTemplate", "")
+        desired_parser = (
+            (desired_llm_spec.get("resultParserConfig") or {})
+            .get("customCodeParserConfig", {})
+            .get("parsingFunction", "")
+        )
 
-        payload = {
-            "displayName": spec["displayName"],
-            "description": spec["description"],
-            "metric": spec["metric"],
-        }
-        created = _api_request("POST", f"{base_url}/evaluationMetrics", token, payload)
-        registered[title] = created["name"]
+        matching_name: str | None = None
+        stale_names: list[str] = []
+        for m in by_title.get(title, []):
+            m_metric = m.get("metric") or {}
+            score_range = (m_metric.get("metadata") or {}).get("scoreRange")
+            m_llm = m_metric.get("llmBasedMetricSpec") or {}
+            m_template = m_llm.get("metricPromptTemplate", "")
+            m_parser = (
+                (m_llm.get("resultParserConfig") or {})
+                .get("customCodeParserConfig", {})
+                .get("parsingFunction", "")
+            )
+            if (
+                matching_name is None
+                and score_range
+                and m_template == desired_template
+                and m_parser == desired_parser
+            ):
+                matching_name = m["name"]
+            else:
+                stale_names.append(m["name"])
+
+        if matching_name:
+            registered[title] = matching_name
+        else:
+            payload = {
+                "displayName": spec["displayName"],
+                "description": spec["description"],
+                "metric": spec["metric"],
+            }
+            created = _api_request("POST", f"{base_url}/evaluationMetrics", token, payload)
+            registered[title] = created["name"]
+
+        for stale_name in stale_names:
+            try:
+                _api_request(
+                    "DELETE",
+                    f"https://{location}-aiplatform.googleapis.com/v1beta1/{stale_name}",
+                    token,
+                )
+            except Exception as exc:
+                print(f"  [warn] Could not delete stale metric {stale_name}: {exc}", flush=True)
 
     return registered
 
@@ -346,13 +411,17 @@ def configure_online_evaluators(
 ) -> list[dict[str, Any]]:
     """Creates or verifies active `onlineEvaluators` on RootRouter and BookingOrchestrator."""
     base_url = f"https://{location}-aiplatform.googleapis.com/v1beta1/projects/{project_id}/locations/{location}"
-    existing_resp = _api_request("GET", f"{base_url}/onlineEvaluators", token)
+    existing_resp = _api_request(
+        "GET", f"{base_url}/onlineEvaluators?pageSize=100&orderBy=create_time%20desc", token
+    )
     existing_evaluators = existing_resp.get("onlineEvaluators") or []
     by_engine_id: dict[str, dict[str, Any]] = {}
     for ev in existing_evaluators:
         ar = ev.get("agentResource", "")
         if ar:
-            by_engine_id[ar.rstrip("/").split("/")[-1]] = ev
+            eng_key = ar.rstrip("/").split("/")[-1]
+            if eng_key not in by_engine_id:
+                by_engine_id[eng_key] = ev
 
     engine_resources = load_reasoning_engine_resources(project_id, location)
     configured: list[dict[str, Any]] = []
@@ -368,17 +437,12 @@ def configure_online_evaluators(
         ],
     }
 
-    created_any = False
+    created_or_updated_any = False
     for agent_name, agent_resource in engine_resources.items():
         engine_id = agent_resource.rstrip("/").split("/")[-1]
         canonical_agent_resource = (
             f"projects/{project_id}/locations/{location}/reasoningEngines/{engine_id}"
         )
-
-        existing = by_engine_id.get(engine_id)
-        if existing and existing.get("state") == "ACTIVE":
-            configured.append(existing)
-            continue
 
         metric_sources: list[dict[str, Any]] = [
             {"metric": {"predefinedMetricSpec": {"metricSpecName": "final_response_quality_v1"}}},
@@ -386,9 +450,28 @@ def configure_online_evaluators(
             {"metric": {"predefinedMetricSpec": {"metricSpecName": "hallucination_v1"}}},
             {"metric": {"predefinedMetricSpec": {"metricSpecName": "safety_v1"}}},
         ]
+        desired_custom_refs: set[str] = set()
         for custom_title in agent_metric_map.get(agent_name, []):
             if custom_title in registered_metrics:
-                metric_sources.append({"metricResourceName": registered_metrics[custom_title]})
+                ref = registered_metrics[custom_title]
+                metric_sources.append({"metricResourceName": ref})
+                desired_custom_refs.add(ref.rstrip("/").split("/")[-1])
+
+        existing = by_engine_id.get(engine_id)
+        if existing and existing.get("state") == "ACTIVE":
+            existing_custom_refs = {
+                ms["metricResourceName"].rstrip("/").split("/")[-1]
+                for ms in (existing.get("metricSources") or [])
+                if ms.get("metricResourceName")
+            }
+            if existing_custom_refs == desired_custom_refs:
+                configured.append(existing)
+                continue
+            _api_request(
+                "DELETE",
+                f"https://{location}-aiplatform.googleapis.com/v1beta1/{existing['name']}",
+                token,
+            )
 
         sampling_pct = max(1, min(100, int(round(sampling_rate * 100))))
         payload = {
@@ -409,19 +492,35 @@ def configure_online_evaluators(
             },
         }
         created = _api_request("POST", f"{base_url}/onlineEvaluators", token, payload)
-        created_any = True
+        created_or_updated_any = True
+        op_name = created.get("name", "")
+        if op_name and "/operations/" in op_name and not created.get("done"):
+            for _ in range(10):
+                time.sleep(1.0)
+                op_state = _api_request(
+                    "GET",
+                    f"https://{location}-aiplatform.googleapis.com/v1beta1/{op_name}",
+                    token,
+                )
+                if op_state.get("done"):
+                    created = op_state
+                    break
         if "response" in created and isinstance(created["response"], dict):
             configured.append(created["response"])
         else:
             configured.append(created)
 
-    if created_any:
-        refreshed = _api_request("GET", f"{base_url}/onlineEvaluators", token)
-        refreshed_map = {
-            ev.get("agentResource", "").rstrip("/").split("/")[-1]: ev
-            for ev in (refreshed.get("onlineEvaluators") or [])
-            if ev.get("agentResource")
-        }
+    if created_or_updated_any:
+        refreshed = _api_request(
+            "GET", f"{base_url}/onlineEvaluators?pageSize=100&orderBy=create_time%20desc", token
+        )
+        refreshed_map: dict[str, dict[str, Any]] = {}
+        for ev in refreshed.get("onlineEvaluators") or []:
+            ar = ev.get("agentResource", "")
+            if ar:
+                eng_key = ar.rstrip("/").split("/")[-1]
+                if eng_key not in refreshed_map:
+                    refreshed_map[eng_key] = ev
         configured = [
             refreshed_map.get(res.rstrip("/").split("/")[-1], {})
             for res in engine_resources.values()

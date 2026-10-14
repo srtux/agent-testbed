@@ -320,8 +320,17 @@ def test_agent_evals_instance_builder_and_custom_rubric_specs():
     for spec in CUSTOM_RUBRIC_METRIC_SPECS:
         meta = spec["metric"]["metadata"]
         assert meta["scoreRange"] == {"min": 0, "max": 1, "step": 0.25}
+        llm_spec = spec["metric"]["llmBasedMetricSpec"]
+        template = llm_spec["metricPromptTemplate"]
+        assert "{% if agent_data %}" in template
+        assert "{% if events %}" in template
+        assert "{% if prompt %}" in template
+        assert "{% if response %}" in template
+        assert "{% if input_text %}" in template
+        assert "{% if output_text %}" in template
+        assert "{% raw %}" in template and "{% endraw %}" in template
         parser_cfg = (
-            spec["metric"]["llmBasedMetricSpec"]
+            llm_spec
             .get("resultParserConfig", {})
             .get("customCodeParserConfig")
         )
@@ -330,6 +339,8 @@ def test_agent_evals_instance_builder_and_custom_rubric_specs():
             exec(parser_cfg["parsingFunction"], ns)
             parsed = ns["parse_llm_response"]('```json\n{"score": 0.75, "explanation": "3 of 4 rubrics met"}\n```')
             assert parsed == {"score": 0.75, "explanation": "3 of 4 rubrics met"}
+            parsed_results = ns["parse_results"](['```json\n{"score": 0.75, "explanation": "3 of 4 rubrics met"}\n```'])
+            assert parsed_results == {"score": 0.75, "explanation": "3 of 4 rubrics met"}
 
 
 def test_quality_flywheel_baseline_vs_optimized_and_loss_clusters():
