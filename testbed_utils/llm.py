@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
-from functools import cached_property
+import weakref
 from typing import Any, AsyncGenerator, Optional
 
 from google.adk.models.google_llm import Gemini, _ResourceExhaustedError
@@ -25,6 +26,12 @@ DEFAULT_FALLBACK_MODELS: tuple[str, ...] = (
     "gemini-4-carbon",
 )
 RETRYABLE_STATUS_CODES: frozenset[int] = frozenset({408, 429, 500, 502, 503, 504})
+
+# Cache google.genai.Client per running asyncio event loop so aiohttp/httpx sessions
+# are never shared across separate asyncio.run() threads in Vertex AI Reasoning Engine.
+_LOOP_CLIENTS: weakref.WeakKeyDictionary[
+    asyncio.AbstractEventLoop, dict[tuple[Any, ...], Any]
+] = weakref.WeakKeyDictionary()
 
 
 def default_retry_options() -> types.HttpRetryOptions:
@@ -89,7 +96,12 @@ def _is_retryable_model_error(exc: Exception) -> bool:
         if code in RETRYABLE_STATUS_CODES:
             return True
     msg = str(exc).upper()
-    return "429" in msg or "RESOURCE_EXHAUSTED" in msg or "503" in msg or "UNAVAILABLE" in msg
+    return (
+        "429" in msg
+        or "RESOURCE_EXHAUSTED" in msg
+        or "503" in msg
+        or "UNAVAILABLE" in msg
+    )
 
 
 class ResilientGemini(Gemini):
@@ -102,8 +114,7 @@ class ResilientGemini(Gemini):
         default_factory=default_retry_options
     )
 
-    @cached_property
-    def api_client(self):
+    def _build_client(self):
         from google.genai import Client
 
         # Respect explicit AI Studio API-key mode in local dev/tests when Vertex is not requested.
@@ -111,7 +122,13 @@ class ResilientGemini(Gemini):
             os.getenv("GOOGLE_API_KEY")
             and os.getenv("GOOGLE_GENAI_USE_VERTEXAI", "").lower() != "true"
         ):
-            return super().api_client
+            return Client(
+                http_options=types.HttpOptions(
+                    headers=self._tracking_headers(),
+                    retry_options=self.retry_options,
+                    base_url=self.base_url,
+                )
+            )
 
         project = os.environ.get("GOOGLE_CLOUD_PROJECT") or os.environ.get("PROJECT_ID")
         if not project:
@@ -143,6 +160,29 @@ class ResilientGemini(Gemini):
         if credentials is not None:
             kwargs["credentials"] = credentials
         return Client(**kwargs)
+
+    @property
+    def api_client(self):
+        cache_key = (
+            self.vertex_location,
+            self.base_url,
+            os.environ.get("GOOGLE_CLOUD_PROJECT", ""),
+            bool(os.environ.get("GOOGLE_API_KEY")),
+        )
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return self._build_client()
+
+        per_loop = _LOOP_CLIENTS.get(loop)
+        if per_loop is None:
+            per_loop = {}
+            _LOOP_CLIENTS[loop] = per_loop
+        client = per_loop.get(cache_key)
+        if client is None:
+            client = self._build_client()
+            per_loop[cache_key] = client
+        return client
 
     async def generate_content_async(
         self, llm_request: LlmRequest, stream: bool = False

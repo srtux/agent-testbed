@@ -620,6 +620,30 @@ def test_resilient_gemini_cross_pool_429_failover_and_tool_sanitizer():
     assert cleaned.content.parts[0].function_call is None
     assert "member ID" in cleaned.content.parts[0].text
 
+    # Verify api_client isolates google.genai.Client instances across separate asyncio.run() threads
+    import threading
+
+    shared_model = build_pro_model()
+    seen_clients: list[int] = []
+
+    def _thread_worker():
+        async def _grab_clients():
+            c1 = shared_model.api_client
+            c2 = shared_model.api_client
+            assert c1 is c2
+            seen_clients.append(id(c1))
+
+        asyncio.run(_grab_clients())
+
+    t1 = threading.Thread(target=_thread_worker)
+    t2 = threading.Thread(target=_thread_worker)
+    t1.start()
+    t1.join()
+    t2.start()
+    t2.join()
+    assert len(seen_clients) == 2
+    assert seen_clients[0] != seen_clients[1]
+
 
 
 
