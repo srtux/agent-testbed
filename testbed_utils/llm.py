@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import weakref
 from typing import Any, AsyncGenerator, Optional
 
 from google.adk.models.google_llm import Gemini, _ResourceExhaustedError
@@ -26,12 +25,7 @@ DEFAULT_FALLBACK_MODELS: tuple[str, ...] = (
     "gemini-4-carbon",
 )
 RETRYABLE_STATUS_CODES: frozenset[int] = frozenset({408, 429, 500, 502, 503, 504})
-
-# Cache google.genai.Client per running asyncio event loop so aiohttp/httpx sessions
-# are never shared across separate asyncio.run() threads in Vertex AI Reasoning Engine.
-_LOOP_CLIENTS: weakref.WeakKeyDictionary[
-    asyncio.AbstractEventLoop, dict[tuple[Any, ...], Any]
-] = weakref.WeakKeyDictionary()
+_LOOP_CACHE_ATTR = "_testbed_genai_clients"
 
 
 def default_retry_options() -> types.HttpRetryOptions:
@@ -174,10 +168,13 @@ class ResilientGemini(Gemini):
         except RuntimeError:
             return self._build_client()
 
-        per_loop = _LOOP_CLIENTS.get(loop)
+        per_loop = getattr(loop, _LOOP_CACHE_ATTR, None)
         if per_loop is None:
             per_loop = {}
-            _LOOP_CLIENTS[loop] = per_loop
+            try:
+                setattr(loop, _LOOP_CACHE_ATTR, per_loop)
+            except AttributeError:
+                return self._build_client()
         client = per_loop.get(cache_key)
         if client is None:
             client = self._build_client()
