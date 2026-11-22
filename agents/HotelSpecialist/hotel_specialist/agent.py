@@ -71,11 +71,20 @@ async def consult_car_rental(user_id: str, dates: str, destination: str) -> dict
         "CAR_RENTAL_SPECIALIST_URL", "http://localhost:8085/chat"
     )
 
-    async with httpx.AsyncClient() as client:
-        payload = {"user_id": user_id, "dates": dates, "destination": destination}
-        res = await client.post(car_rental_url, json=payload, timeout=60.0)
-        res.raise_for_status()
-        return res.json()
+    try:
+        async with httpx.AsyncClient() as client:
+            payload = {"user_id": user_id, "dates": dates, "destination": destination}
+            res = await client.post(car_rental_url, json=payload, timeout=90.0)
+            res.raise_for_status()
+            return res.json()
+    except httpx.HTTPError as exc:
+        logger.warning(
+            f"CarRentalSpecialist request failed for {user_id} ({type(exc).__name__}: {exc})"
+        )
+        return {
+            "status": "unavailable",
+            "car_summary": f"Car rental specialist temporarily unavailable ({type(exc).__name__}).",
+        }
 
 
 # --- Agent ---

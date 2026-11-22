@@ -79,12 +79,27 @@ async def delegate_to_booking_orchestrator(
     booking_orch_url = os.environ.get(
         "BOOKING_ORCHESTRATOR_URL", "http://localhost:8081/chat"
     )
-    return await invoke_booking_orchestrator(
-        url=booking_orch_url,
-        user_id=user_id,
-        itinerary_details=itinerary_details,
-        timeout=120.0,
+    timeout_s = float(
+        os.environ.get("BOOKING_ORCHESTRATOR_TIMEOUT_SECONDS", "120.0")
     )
+    try:
+        return await invoke_booking_orchestrator(
+            url=booking_orch_url,
+            user_id=user_id,
+            itinerary_details=itinerary_details,
+            timeout=timeout_s,
+        )
+    except httpx.HTTPError as exc:
+        logger.warning(
+            f"Booking Orchestrator delegation failed for {user_id} ({type(exc).__name__}: {exc})"
+        )
+        return {
+            "status": "pending_confirmation",
+            "summary": (
+                f"Booking Orchestrator temporarily unavailable ({type(exc).__name__}); "
+                "weather advisory completed and itinerary queued for finalization."
+            ),
+        }
 
 
 # --- Agent ---

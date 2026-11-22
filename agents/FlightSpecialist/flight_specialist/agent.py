@@ -77,6 +77,13 @@ async def check_flight_availability(user_id: str, destination: str, dates: str) 
 
 # --- A2A HTTP Delegation Tools ---
 
+HOTEL_SPECIALIST_TIMEOUT_SECONDS = float(
+    os.environ.get("HOTEL_SPECIALIST_TIMEOUT_SECONDS", "120.0")
+)
+WEATHER_SPECIALIST_TIMEOUT_SECONDS = float(
+    os.environ.get("WEATHER_SPECIALIST_TIMEOUT_SECONDS", "180.0")
+)
+
 
 async def delegate_to_hotel_specialist(
     user_id: str, destination: str, dates: str
@@ -85,12 +92,27 @@ async def delegate_to_hotel_specialist(
     logger.info(f"Delegating to HotelSpecialist for {user_id}")
     hotel_url = os.environ.get("HOTEL_SPECIALIST_URL", "http://localhost:8084/chat")
 
-    async with httpx.AsyncClient() as client:
-        payload = {"user_id": user_id, "destination": destination, "dates": dates}
-        res = await client.post(hotel_url, json=payload, timeout=60.0)
-        if res.status_code >= 400:
-            return {"status": "mock_success", "hotel": "Fallback Inn"}
-        return res.json()
+    try:
+        async with httpx.AsyncClient() as client:
+            payload = {"user_id": user_id, "destination": destination, "dates": dates}
+            res = await client.post(
+                hotel_url, json=payload, timeout=HOTEL_SPECIALIST_TIMEOUT_SECONDS
+            )
+            if res.status_code >= 400:
+                logger.warning(
+                    f"HotelSpecialist returned HTTP {res.status_code} for {user_id}; using fallback"
+                )
+                return {"status": "mock_success", "hotel": "Fallback Inn"}
+            return res.json()
+    except httpx.HTTPError as exc:
+        logger.warning(
+            f"HotelSpecialist request failed for {user_id} ({type(exc).__name__}: {exc}); using fallback"
+        )
+        return {
+            "status": "mock_success",
+            "hotel": "Fallback Inn",
+            "degraded_reason": f"{type(exc).__name__}: {exc}",
+        }
 
 
 async def delegate_to_weather_specialist(
@@ -100,16 +122,33 @@ async def delegate_to_weather_specialist(
     logger.info(f"Delegating to WeatherSpecialist for {user_id}")
     weather_url = os.environ.get("WEATHER_SPECIALIST_URL", "http://localhost:8083/chat")
 
-    async with httpx.AsyncClient() as client:
-        payload = {
-            "user_id": user_id,
-            "destination": destination,
-            "itinerary_so_far": itinerary_so_far,
+    try:
+        async with httpx.AsyncClient() as client:
+            payload = {
+                "user_id": user_id,
+                "destination": destination,
+                "itinerary_so_far": itinerary_so_far,
+            }
+            res = await client.post(
+                weather_url, json=payload, timeout=WEATHER_SPECIALIST_TIMEOUT_SECONDS
+            )
+            if res.status_code >= 400:
+                logger.warning(
+                    f"WeatherSpecialist returned HTTP {res.status_code} for {user_id}; using fallback"
+                )
+                return {"status": "mock_success"}
+            return res.json()
+    except httpx.HTTPError as exc:
+        logger.warning(
+            f"WeatherSpecialist request failed for {user_id} ({type(exc).__name__}: {exc}); using fallback"
+        )
+        return {
+            "status": "mock_success",
+            "weather_agent_summary": (
+                f"Weather check for {destination} timed out upstream; proceeding with standard packing advisory."
+            ),
+            "degraded_reason": f"{type(exc).__name__}: {exc}",
         }
-        res = await client.post(weather_url, json=payload, timeout=60.0)
-        if res.status_code >= 400:
-            return {"status": "mock_success"}
-        return res.json()
 
 
 # --- Agent ---

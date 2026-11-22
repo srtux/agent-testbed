@@ -438,4 +438,81 @@ def test_quality_flywheel_baseline_vs_optimized_and_loss_clusters():
     assert by_metric["custom_code_trajectory_policy_compliance"]["delta"] > 0.3
 
 
+def test_specialist_timeout_hierarchy_and_http_resilience():
+    """Verifies downstream timeout budgets prevent timeout inversion and HTTP failures degrade gracefully."""
+    import asyncio
+    from unittest.mock import AsyncMock, patch
+
+    import httpx
+
+    from agents.FlightSpecialist.flight_specialist import agent as flight_mod
+    from agents.RootRouter.root_router.sub_agents import planning as planning_mod
+    from agents.WeatherSpecialist.weather_specialist import agent as weather_mod
+
+    # Upstream timeouts must strictly exceed downstream delegation budgets:
+    # RootRouter (240s) > FlightSpecialist->WeatherSpecialist (180s) > WeatherSpecialist->BookingOrchestrator (120s)
+    assert planning_mod.SPECIALIST_TIMEOUT_SECONDS >= 240.0
+    assert flight_mod.WEATHER_SPECIALIST_TIMEOUT_SECONDS >= 180.0
+    assert flight_mod.HOTEL_SPECIALIST_TIMEOUT_SECONDS >= 120.0
+
+    async def _exercise_fallbacks():
+        req = httpx.Request("POST", "http://10.128.0.53/chat")
+        read_timeout = httpx.ReadTimeout("timed out after 60s", request=req)
+        resp_500 = httpx.Response(500, request=httpx.Request("POST", "http://10.128.0.103/chat"))
+
+        with patch.object(httpx.AsyncClient, "post", new=AsyncMock(side_effect=read_timeout)):
+            weather_fallback = await flight_mod.delegate_to_weather_specialist(
+                user_id="user_1438",
+                destination="Patagonia",
+                itinerary_so_far="Flight CloudAir + Patagonia Cloud Suites",
+            )
+            assert weather_fallback["status"] == "mock_success"
+            assert "ReadTimeout" in weather_fallback["degraded_reason"]
+
+            hotel_fallback = await flight_mod.delegate_to_hotel_specialist(
+                user_id="user_1438",
+                destination="Patagonia",
+                dates="2026-06-28 to 2026-07-03",
+            )
+            assert hotel_fallback["status"] == "mock_success"
+            assert hotel_fallback["hotel"] == "Fallback Inn"
+
+        with patch.object(httpx.AsyncClient, "post", new=AsyncMock(return_value=resp_500)):
+            flight_res = await planning_mod.call_flight_specialist(
+                user_id="user_1438",
+                destination="Patagonia",
+                departure_airport="SFO",
+                dates="2026-06-28 to 2026-07-03",
+            )
+            assert flight_res["status"] == "degraded"
+            assert "Patagonia" in flight_res["agent_response"]
+
+            hotel_res = await planning_mod.call_hotel_specialist(
+                user_id="user_1438",
+                destination="Patagonia",
+                dates="2026-06-28 to 2026-07-03",
+            )
+            assert hotel_res["status"] == "degraded"
+
+            car_res = await planning_mod.call_car_specialist(
+                user_id="user_1438",
+                destination="Patagonia",
+                dates="2026-06-28 to 2026-07-03",
+            )
+            assert car_res["status"] == "degraded"
+
+        with patch(
+            "testbed_utils.telemetry.invoke_booking_orchestrator",
+            new=AsyncMock(side_effect=read_timeout),
+        ):
+            booking_res = await weather_mod.delegate_to_booking_orchestrator(
+                user_id="user_1438",
+                itinerary_details="Patagonia itinerary",
+            )
+            assert booking_res["status"] == "pending_confirmation"
+
+    asyncio.run(_exercise_fallbacks())
+
+
+
 
