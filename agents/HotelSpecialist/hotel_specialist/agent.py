@@ -8,12 +8,14 @@ from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
 from opentelemetry.propagate import inject
 
+from testbed_utils.llm import build_pro_model
+
 # Relative imports from current package
 from .prompt import HOTEL_SPECIALIST_INSTRUCTION
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_PRO_MODEL = os.environ.get("PRO_MODEL", "gemini-2.5-pro")
+DEFAULT_PRO_MODEL = build_pro_model()
 
 # --- Local Tool ---
 

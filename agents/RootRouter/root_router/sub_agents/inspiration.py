@@ -1,13 +1,14 @@
 import logging
-import os
 
 from google.adk.agents import LlmAgent
+
+from testbed_utils.llm import build_flash_model
 
 # Relative import from parent package
 from ..prompt import INSPIRATION_INSTRUCTION
 
 logger = logging.getLogger(__name__)
-DEFAULT_FLASH_MODEL = os.environ.get("FLASH_MODEL", "gemini-2.5-flash")
+DEFAULT_FLASH_MODEL = build_flash_model()
 
 place_agent = LlmAgent(
     name="PlaceAgent",

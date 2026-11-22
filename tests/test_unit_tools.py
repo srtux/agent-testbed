@@ -514,5 +514,113 @@ def test_specialist_timeout_hierarchy_and_http_resilience():
     asyncio.run(_exercise_fallbacks())
 
 
+def test_resilient_gemini_cross_pool_429_failover_and_tool_sanitizer():
+    """Verifies ResilientGemini fails over across Gemini 4 pools on 429 and strips hallucinated tools."""
+    import asyncio
+    from unittest.mock import patch
+
+    from google.adk.models.google_llm import Gemini
+    from google.adk.models.llm_request import LlmRequest
+    from google.adk.models.llm_response import LlmResponse
+    from google.genai import types
+    from google.genai.errors import ClientError
+
+    from testbed_utils.llm import (
+        DEFAULT_FLASH_MODEL_NAME,
+        DEFAULT_PRO_MODEL_NAME,
+        ResilientGemini,
+        build_flash_model,
+        build_pro_model,
+        sanitize_unregistered_tool_calls,
+    )
+
+    assert DEFAULT_PRO_MODEL_NAME == "gemini-4-neon"
+    assert DEFAULT_FLASH_MODEL_NAME == "gemini-4-hydrogen"
+    assert build_pro_model().vertex_location == "global"
+    assert build_flash_model().retry_options.attempts >= 4
+
+    attempted_models: list[str] = []
+
+    async def _fake_super_generate(self, llm_request: LlmRequest, stream: bool = False):
+        attempted_models.append(llm_request.model)
+        if llm_request.model == "gemini-4-neon":
+            raise ClientError(
+                429,
+                {
+                    "error": {
+                        "code": 429,
+                        "message": "TPM quota exhausted.",
+                        "status": "RESOURCE_EXHAUSTED",
+                    }
+                },
+                None,
+            )
+        yield LlmResponse(
+            content=types.Content(
+                role="model",
+                parts=[
+                    types.Part(
+                        function_call=types.FunctionCall(
+                            name="run_code", args={"code": "print(1)"}
+                        )
+                    ),
+                    types.Part.from_text(text="Recovered on fallback pool."),
+                ],
+            )
+        )
+
+    async def _run_failover():
+        model = ResilientGemini(
+            model="gemini-4-neon",
+            fallback_models=("gemini-4-neon", "gemini-4-hydrogen", "gemini-4-argon"),
+        )
+        req = LlmRequest(
+            model="gemini-4-neon",
+            contents=[types.Content(role="user", parts=[types.Part.from_text(text="Book trip")])],
+        )
+        with patch.object(Gemini, "generate_content_async", _fake_super_generate):
+            outputs = [r async for r in model.generate_content_async(req)]
+        assert attempted_models == ["gemini-4-neon", "gemini-4-hydrogen"]
+        assert len(outputs) == 1
+        parts = outputs[0].content.parts
+        assert all(getattr(p, "function_call", None) is None for p in parts)
+        assert parts[0].text == "Recovered on fallback pool."
+
+        # Also verify graceful LlmResponse when all pools fail with 429
+        async def _always_429(self, llm_request: LlmRequest, stream: bool = False):
+            raise ClientError(429, {"error": {"code": 429, "status": "RESOURCE_EXHAUSTED"}}, None)
+            yield  # pragma: no cover
+
+        req_exhausted = LlmRequest(
+            model="gemini-4-neon",
+            contents=[types.Content(role="user", parts=[types.Part.from_text(text="Hi")])],
+        )
+        with patch.object(Gemini, "generate_content_async", _always_429):
+            degraded = [r async for r in model.generate_content_async(req_exhausted)]
+        assert len(degraded) == 1
+        assert "momentarily busy" in degraded[0].content.parts[0].text
+
+    asyncio.run(_run_failover())
+
+    # Verify sole unregistered tool call gets replaced with safe text
+    only_bad_tool = LlmResponse(
+        content=types.Content(
+            role="model",
+            parts=[
+                types.Part(
+                    function_call=types.FunctionCall(
+                        name="google:python_interpreter", args={}
+                    )
+                )
+            ],
+        )
+    )
+    cleaned = sanitize_unregistered_tool_calls(only_bad_tool, {"fetch_profile"})
+    assert len(cleaned.content.parts) == 1
+    assert cleaned.content.parts[0].function_call is None
+    assert "member ID" in cleaned.content.parts[0].text
+
+
+
 
 

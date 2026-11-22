@@ -11,13 +11,14 @@ from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
 from opentelemetry.propagate import inject
 
+from testbed_utils.llm import build_pro_model
 from testbed_utils.telemetry import invoke_booking_orchestrator
 
 # Relative import from parent package
 from ..prompt import PLANNING_INSTRUCTION
 
 logger = logging.getLogger(__name__)
-DEFAULT_PRO_MODEL = os.environ.get("PRO_MODEL", "gemini-2.5-pro")
+DEFAULT_PRO_MODEL = build_pro_model()
 
 # --- Remote BigQuery MCP Hook ---
 

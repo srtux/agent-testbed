@@ -82,7 +82,6 @@ def create_agent(
 ) -> str | None:
     """Creates an agent engine for the given agent."""
     import importlib.util
-    import shutil
 
     import cloudpickle
 
@@ -117,6 +116,7 @@ def create_agent(
     # Also register testbed_utils to prevent remote ModuleNotFoundError
     import testbed_utils
     import testbed_utils.config
+    import testbed_utils.llm
     import testbed_utils.logging
     import testbed_utils.mock_llm
     import testbed_utils.telemetry
@@ -125,6 +125,7 @@ def create_agent(
     cloudpickle.register_pickle_by_value(testbed_utils.telemetry)
     cloudpickle.register_pickle_by_value(testbed_utils.logging)
     cloudpickle.register_pickle_by_value(testbed_utils.config)
+    cloudpickle.register_pickle_by_value(testbed_utils.llm)
     cloudpickle.register_pickle_by_value(testbed_utils.mock_llm)
     cloudpickle.register_pickle_by_value(sys.modules[__name__])
 
@@ -280,6 +281,9 @@ def create_agent(
 
     env_vars = {
         "GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY": "true",
+        "GOOGLE_GENAI_USE_VERTEXAI": "true",
+        "PRO_MODEL": os.environ.get("PRO_MODEL", "gemini-4-neon"),
+        "FLASH_MODEL": os.environ.get("FLASH_MODEL", "gemini-4-hydrogen"),
         "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT": "true",
         "OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED": "true",
         "ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS": "false",

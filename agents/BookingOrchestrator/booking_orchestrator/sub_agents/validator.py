@@ -1,10 +1,10 @@
-import os
-
 from google.adk.agents import LlmAgent
+
+from testbed_utils.llm import build_flash_model
 
 from ..prompt import VALIDATOR_INSTRUCTION
 
-DEFAULT_FLASH_MODEL = os.environ.get("FLASH_MODEL", "gemini-2.5-flash")
+DEFAULT_FLASH_MODEL = build_flash_model()
 
 itinerary_validator = LlmAgent(
     name="ItineraryValidator",

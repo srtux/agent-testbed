@@ -5,7 +5,6 @@ import os
 import random
 import re
 import uuid
-
 from typing import Any
 
 import google.auth
@@ -308,7 +307,9 @@ def _generate_next_user_prompt(
     if not history:
         return _fallback_next_user_prompt(persona, history, turn_idx)
 
-    simulator_model = os.environ.get("USER_SIMULATOR_MODEL", "gemini-2.5-flash")
+    simulator_model = os.environ.get("USER_SIMULATOR_MODEL", "gemini-4-hydrogen")
+    if simulator_model.startswith("gemini-2."):
+        simulator_model = "gemini-4-hydrogen"
     resolved_project = project or os.environ.get(
         "GOOGLE_CLOUD_PROJECT", os.environ.get("PROJECT_ID", "")
     )
@@ -375,18 +376,27 @@ def _generate_next_user_prompt(
         sim_span.set_attribute("gen_ai.request.model", simulator_model)
         sim_span.set_attribute("gen_ai.conversation.turn", turn_idx)
         try:
-            url = (
-                f"https://{location}-aiplatform.googleapis.com/v1/projects/{resolved_project}"
-                f"/locations/{location}/publishers/google/models/{simulator_model}:generateContent"
+            use_global = simulator_model.startswith(("gemini-3", "gemini-4"))
+            sim_host = (
+                "https://aiplatform.googleapis.com"
+                if use_global
+                else f"https://{location}-aiplatform.googleapis.com"
             )
+            sim_loc = "global" if use_global else location
+            url = (
+                f"{sim_host}/v1beta1/projects/{resolved_project}"
+                f"/locations/{sim_loc}/publishers/google/models/{simulator_model}:generateContent"
+            )
+            gen_cfg: dict[str, Any] = {
+                "temperature": 0.4,
+                "maxOutputTokens": 1024,
+            }
+            if simulator_model.startswith("gemini-4"):
+                gen_cfg["thinkingConfig"] = {"thinkingLevel": "LOW"}
             payload = {
                 "systemInstruction": {"parts": [{"text": system_prompt}]},
                 "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
-                "generationConfig": {
-                    "temperature": 0.4,
-                    "maxOutputTokens": 512,
-                    "thinkingConfig": {"thinkingBudget": 0},
-                },
+                "generationConfig": gen_cfg,
             }
             resp = requests.post(url, json=payload, headers=auth_headers, timeout=20.0)
             resp.raise_for_status()

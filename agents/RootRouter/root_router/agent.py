@@ -4,13 +4,14 @@ import os
 from google.adk.agents import LlmAgent
 from google.adk.tools.agent_tool import AgentTool
 
+from testbed_utils.llm import build_flash_model, build_pro_model
+from testbed_utils.telemetry import setup_authenticated_transport
+
 # Relative imports from current package
 from .prompt import ROOT_ROUTER_INSTRUCTION
 from .sub_agents.inspiration import inspiration_agent
 from .sub_agents.planning import planning_agent
 from .tools import extract_travel_intent
-
-from testbed_utils.telemetry import setup_authenticated_transport
 
 logger = logging.getLogger(__name__)
 
@@ -18,8 +19,8 @@ logger = logging.getLogger(__name__)
 # both in local FastAPI mode and when unpickled inside Vertex AI Reasoning Engine.
 setup_authenticated_transport()
 
-DEFAULT_FLASH_MODEL = os.environ.get("FLASH_MODEL", "gemini-2.5-flash")
-DEFAULT_PRO_MODEL = os.environ.get("PRO_MODEL", "gemini-2.5-pro")
+DEFAULT_FLASH_MODEL = build_flash_model()
+DEFAULT_PRO_MODEL = build_pro_model()
 
 # --- Specialist Tools ---
 

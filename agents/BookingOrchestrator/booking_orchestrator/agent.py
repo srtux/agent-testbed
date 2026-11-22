@@ -11,13 +11,14 @@ from mcp.client.sse import sse_client
 from opentelemetry.propagate import inject
 from pydantic import BaseModel
 
+from testbed_utils.llm import build_pro_model
+from testbed_utils.telemetry import setup_authenticated_transport
+
 # Relative imports from current package
 from .prompt import BOOKING_ORCHESTRATOR_INSTRUCTION
 from .sub_agents.payment import payment_agent
 from .sub_agents.validator import itinerary_validator
 from .tools import calculate_trip_cost, format_itinerary
-
-from testbed_utils.telemetry import setup_authenticated_transport
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +26,7 @@ logger = logging.getLogger(__name__)
 # both in local FastAPI mode and when unpickled inside Vertex AI Reasoning Engine.
 setup_authenticated_transport()
 
-DEFAULT_PRO_MODEL = os.environ.get("PRO_MODEL", "gemini-2.5-pro")
+DEFAULT_PRO_MODEL = build_pro_model()
 
 # --- Local Tools (real compute) ---
 

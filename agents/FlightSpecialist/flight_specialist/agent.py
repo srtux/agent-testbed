@@ -5,12 +5,14 @@ from datetime import date, datetime
 import httpx
 from google.adk.agents import LlmAgent
 
+from testbed_utils.llm import build_flash_model
+
 # Relative imports from current package
 from .prompt import FLIGHT_SPECIALIST_INSTRUCTION
 from .sub_agents.seat_selector import seat_selector
 
 logger = logging.getLogger(__name__)
-DEFAULT_FLASH_MODEL = os.environ.get("FLASH_MODEL", "gemini-2.5-flash")
+DEFAULT_FLASH_MODEL = build_flash_model()
 
 # --- Local Tools ---
 
