@@ -81,9 +81,281 @@ def _patch_adk_app_name_validation():
         pass
 
 
+def _patch_otel_cross_context_detach():
+    """Suppresses benign cross-context OTel token detach tracebacks during asyncgen teardown.
+
+    Under google-adk 2.0.0a3 NEW_WORKFLOW sub-agent transfers (e.g. InspirationAgent ->
+    PlaceAgent/PoiAgent), child workflow nodes yield inside synchronous OTel span context
+    managers (`use_span`, `_use_extra_generate_content_attributes`) in one asyncio Task's
+    Context and are later closed (`GeneratorExit`) from the outer AgentTool/Runner Context.
+    `ContextVar.reset(token)` raises `ValueError: <Token ...> was created in a different
+    Context`, which `opentelemetry.context.detach()` catches and logs via `logger.exception`,
+    emitting false-positive `severity=ERROR` tracebacks to Reasoning Engine stderr while
+    `use_span`'s outer `finally` block still ends the span normally.
+    """
+    try:
+        from opentelemetry.context.contextvars_context import ContextVarsRuntimeContext
+
+        _orig_detach = getattr(ContextVarsRuntimeContext, "detach", None)
+        if _orig_detach and not getattr(
+            _orig_detach, "_suppresses_cross_context_value_error", False
+        ):
+
+            def _safe_contextvars_detach(self, token) -> None:
+                try:
+                    return _orig_detach(self, token)
+                except ValueError as exc:
+                    if "was created in a different Context" in str(exc):
+                        logger.debug(
+                            "Ignoring cross-context OTel token detach during generator close: %s",
+                            exc,
+                        )
+                        return
+                    raise
+
+            _safe_contextvars_detach._suppresses_cross_context_value_error = True
+            ContextVarsRuntimeContext.detach = _safe_contextvars_detach
+    except Exception:
+        pass
+
+
+def is_transient_session_error(exc: BaseException) -> bool:
+    """Returns True for transient Vertex AI session control-plane errors (e.g. UNVERIFIED_ORG_POLICY, 429, 5xx)."""
+    if isinstance(exc, (TimeoutError, ConnectionError)):
+        return True
+    code = getattr(exc, "code", None)
+    if code in {408, 429, 500, 502, 503, 504}:
+        return True
+    msg = str(exc).upper()
+    transient_markers = (
+        "UNVERIFIED_ORG_POLICY",
+        "FAILED TO CHECK ORG POLICY",
+        "RESOURCE_EXHAUSTED",
+        "UNAVAILABLE",
+        "DEADLINE_EXCEEDED",
+        "INTERNAL",
+        "429",
+        "500",
+        "502",
+        "503",
+        "504",
+    )
+    return any(marker in msg for marker in transient_markers)
+
+
+def _run_coro_in_worker_thread(coro_fn, timeout: float = 30.0):
+    """Runs an async callable in a dedicated thread without leaking uncaught exceptions to stderr."""
+    import asyncio
+    import queue
+    import threading
+
+    outcome_queue: queue.Queue = queue.Queue(maxsize=1)
+
+    def _worker() -> None:
+        try:
+            res = asyncio.run(coro_fn())
+            outcome_queue.put(("ok", res))
+        except BaseException as exc:  # noqa: BLE001
+            outcome_queue.put(("err", exc))
+
+    thread = threading.Thread(target=_worker, daemon=True)
+    thread.start()
+    thread.join(timeout=timeout)
+    try:
+        status, payload = outcome_queue.get_nowait()
+    except queue.Empty:
+        raise RuntimeError(
+            f"Timed out after {timeout:.1f}s waiting for session operation."
+        ) from None
+    if status == "err":
+        if isinstance(payload, Exception):
+            raise payload
+        raise RuntimeError(f"Session operation aborted: {payload}") from None
+    return payload
+
+
+def _record_fallback_session_id(adk_app, session_id: str, max_entries: int = 512) -> None:
+    fallback_ids = adk_app._tmpl_attrs.get("fallback_in_memory_sessions")
+    if not isinstance(fallback_ids, dict):
+        fallback_ids = {}
+        adk_app._tmpl_attrs["fallback_in_memory_sessions"] = fallback_ids
+    if len(fallback_ids) >= max_entries and session_id not in fallback_ids:
+        fallback_ids.pop(next(iter(fallback_ids)), None)
+    fallback_ids[session_id] = True
+
+
+async def resilient_adk_async_create_session(
+    adk_app,
+    *,
+    user_id: str,
+    session_id: str | None = None,
+    state: dict | None = None,
+    max_attempts: int = 3,
+    base_delay: float = 0.6,
+    **kwargs,
+):
+    """Creates an ADK session with transient control-plane retries and in-memory fallback."""
+    import asyncio
+
+    if not adk_app._tmpl_attrs.get("session_service"):
+        adk_app.set_up()
+
+    app_name = adk_app._tmpl_attrs.get("app_name")
+    primary_service = adk_app._tmpl_attrs.get("session_service")
+    in_memory_service = adk_app._tmpl_attrs.get("in_memory_session_service")
+
+    last_exc: Exception | None = None
+    for attempt in range(max_attempts):
+        try:
+            return await primary_service.create_session(
+                app_name=app_name,
+                user_id=user_id,
+                session_id=session_id,
+                state=state,
+                **kwargs,
+            )
+        except Exception as exc:
+            last_exc = exc
+            if attempt + 1 < max_attempts and is_transient_session_error(exc):
+                delay = base_delay * (2**attempt)
+                logger.warning(
+                    "Transient session creation error on attempt %d/%d for user %s (%s: %s); retrying in %.1fs",
+                    attempt + 1,
+                    max_attempts,
+                    user_id,
+                    type(exc).__name__,
+                    exc,
+                    delay,
+                )
+                await asyncio.sleep(delay)
+                continue
+            break
+
+    if in_memory_service is not None and in_memory_service is not primary_service:
+        logger.warning(
+            "Primary session_service.create_session failed for user %s (%s: %s); falling back to InMemorySessionService",
+            user_id,
+            type(last_exc).__name__ if last_exc else "UnknownError",
+            last_exc,
+        )
+        fallback_session = await in_memory_service.create_session(
+            app_name=app_name,
+            user_id=user_id,
+            session_id=session_id,
+            state=state,
+        )
+        _record_fallback_session_id(adk_app, fallback_session.id)
+        return fallback_session
+
+    if last_exc is not None:
+        raise last_exc
+    raise RuntimeError("Failed to create session.")
+
+
+def resilient_adk_create_session(
+    adk_app,
+    *,
+    user_id: str,
+    session_id: str | None = None,
+    state: dict | None = None,
+    timeout: float = 30.0,
+    **kwargs,
+):
+    """Thread-safe sync wrapper for resilient_adk_async_create_session without uncaught thread stderr."""
+    return _run_coro_in_worker_thread(
+        lambda: resilient_adk_async_create_session(
+            adk_app,
+            user_id=user_id,
+            session_id=session_id,
+            state=state,
+            **kwargs,
+        ),
+        timeout=timeout,
+    )
+
+
+def resilient_adk_stream_query(
+    adk_app,
+    *,
+    message,
+    user_id: str,
+    session_id: str | None = None,
+    run_config: dict | None = None,
+    **kwargs,
+):
+    """Streams ADK responses using InMemoryRunner for stateless/fallback sessions and primary Runner otherwise."""
+    from google.adk.agents.run_config import RunConfig
+    from google.genai import types
+    from vertexai.agent_engines import _utils
+
+    if isinstance(message, dict):
+        content = types.Content.model_validate(message)
+    elif isinstance(message, str):
+        content = types.Content(role="user", parts=[types.Part(text=message)])
+    else:
+        raise TypeError(
+            "message must be a string or a dictionary representing a Content object."
+        )
+
+    if not adk_app._tmpl_attrs.get("runner"):
+        adk_app.set_up()
+
+    validated_run_config = None
+    if run_config is not None:
+        if isinstance(run_config, dict):
+            validated_run_config = RunConfig.model_validate(run_config)
+        elif isinstance(run_config, RunConfig):
+            validated_run_config = run_config
+        else:
+            raise TypeError(
+                "run_config must be a dictionary representing a RunConfig object."
+            )
+
+    in_memory_runner = adk_app._tmpl_attrs.get("in_memory_runner")
+    in_memory_service = adk_app._tmpl_attrs.get("in_memory_session_service")
+    fallback_ids = adk_app._tmpl_attrs.get("fallback_in_memory_sessions") or {}
+
+    use_in_memory = False
+    if not session_id:
+        if in_memory_runner is not None and in_memory_service is not None:
+            app_name = adk_app._tmpl_attrs.get("app_name")
+            ephemeral_session = _run_coro_in_worker_thread(
+                lambda: in_memory_service.create_session(
+                    app_name=app_name, user_id=user_id
+                )
+            )
+            session_id = ephemeral_session.id
+            use_in_memory = True
+        else:
+            created = resilient_adk_create_session(adk_app, user_id=user_id)
+            session_id = created.id
+            fallback_ids = adk_app._tmpl_attrs.get("fallback_in_memory_sessions") or {}
+            use_in_memory = session_id in fallback_ids
+    elif session_id in fallback_ids and in_memory_runner is not None:
+        use_in_memory = True
+
+    active_runner = (
+        in_memory_runner
+        if (use_in_memory and in_memory_runner is not None)
+        else adk_app._tmpl_attrs.get("runner")
+    )
+    run_kwargs = dict(kwargs)
+    if validated_run_config is not None:
+        run_kwargs["run_config"] = validated_run_config
+
+    for event in active_runner.run(
+        user_id=user_id,
+        session_id=session_id,
+        new_message=content,
+        **run_kwargs,
+    ):
+        yield _utils.dump_event_for_json(event)
+
+
 def setup_authenticated_transport():
     """Hooks into Requests and HTTPX to inject OIDC tokens for service-to-service auth."""
     _patch_adk_app_name_validation()
+    _patch_otel_cross_context_detach()
     from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
     from opentelemetry.instrumentation.requests import RequestsInstrumentor
 

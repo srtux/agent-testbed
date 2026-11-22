@@ -645,6 +645,174 @@ def test_resilient_gemini_cross_pool_429_failover_and_tool_sanitizer():
     assert seen_clients[0] != seen_clients[1]
 
 
+def test_otel_cross_context_detach_suppresses_asyncgen_stderr_error(caplog):
+    """Verifies cross-Task async generator teardown does not log ERROR 'Failed to detach context'."""
+    import asyncio
+    import logging
+
+    import opentelemetry.context as otel_context
+    from opentelemetry import trace
+
+    from testbed_utils.telemetry import setup_authenticated_transport
+
+    setup_authenticated_transport()
+    tracer = trace.get_tracer("test_cross_context_detach")
+
+    async def _span_yielding_agen():
+        tok = otel_context.attach(otel_context.set_value("test.extra.key", "v1"))
+        try:
+            with tracer.start_as_current_span("child_task_span"):
+                yield "first_chunk"
+                yield "second_chunk"
+        finally:
+            otel_context.detach(tok)
+
+    async def _drive_across_tasks():
+        holder = {}
+
+        async def _producer_in_child_task():
+            agen = _span_yielding_agen()
+            first = await agen.__anext__()
+            assert first == "first_chunk"
+            holder["agen"] = agen
+
+        child_task = asyncio.create_task(_producer_in_child_task())
+        await child_task
+        # Closing the suspended async generator from the parent Task executes
+        # `finally: otel_context.detach(...)` in a different contextvars.Context.
+        await holder["agen"].aclose()
+
+    with caplog.at_level(logging.ERROR, logger="opentelemetry.context"):
+        asyncio.run(_drive_across_tasks())
+
+    error_messages = [rec.getMessage() for rec in caplog.records if rec.levelno >= logging.ERROR]
+    assert not any("Failed to detach context" in m for m in error_messages)
+
+
+def test_resilient_adk_session_retries_org_policy_and_falls_back_in_memory():
+    """Verifies UNVERIFIED_ORG_POLICY retries, in-memory fallback, and stateless stream_query routing."""
+    from types import SimpleNamespace
+
+    from google.adk.events import Event
+    from google.adk.sessions.in_memory_session_service import InMemorySessionService
+    from google.genai import types
+    from google.genai.errors import ClientError
+
+    from testbed_utils.telemetry import (
+        is_transient_session_error,
+        resilient_adk_create_session,
+        resilient_adk_stream_query,
+    )
+
+    org_policy_err = ClientError(
+        400,
+        {
+            "error": {
+                "code": 400,
+                "message": "Failed to check org policy for project 123456789012.",
+                "status": "FAILED_PRECONDITION",
+                "details": [
+                    {
+                        "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+                        "reason": "UNVERIFIED_ORG_POLICY",
+                    }
+                ],
+            }
+        },
+        None,
+    )
+    assert is_transient_session_error(org_policy_err) is True
+
+    # 1. Transient failure on attempt 1 recovers on attempt 2 via primary service
+    call_count = {"n": 0}
+
+    class _FlakyPrimarySessionService:
+        async def create_session(self, *, app_name, user_id, session_id=None, state=None, **kwargs):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                raise org_policy_err
+            return SimpleNamespace(id="primary-sess-42", user_id=user_id, app_name=app_name)
+
+    in_mem_service = InMemorySessionService()
+    fake_app = SimpleNamespace(
+        _tmpl_attrs={
+            "app_name": "RootRouter",
+            "session_service": _FlakyPrimarySessionService(),
+            "in_memory_session_service": in_mem_service,
+        },
+        set_up=lambda: None,
+    )
+    recovered = resilient_adk_create_session(fake_app, user_id="user_101", base_delay=0.01)
+    assert recovered.id == "primary-sess-42"
+    assert call_count["n"] == 2
+
+    # 2. Persistent failure falls back cleanly to InMemorySessionService without raising or stderr crash
+    class _BrokenPrimarySessionService:
+        async def create_session(self, **kwargs):
+            raise org_policy_err
+
+    primary_runs: list[str] = []
+    in_memory_runs: list[str] = []
+
+    class _RecordingRunner:
+        def __init__(self, bucket: list[str], label: str):
+            self._bucket = bucket
+            self._label = label
+
+        def run(self, *, user_id, session_id, new_message, **kwargs):
+            self._bucket.append(session_id)
+            yield Event(
+                author="BookingOrchestrator",
+                content=types.Content(
+                    role="model",
+                    parts=[types.Part.from_text(text=f"handled-by-{self._label}")],
+                ),
+            )
+
+    fake_app_fallback = SimpleNamespace(
+        _tmpl_attrs={
+            "app_name": "BookingOrchestrator",
+            "session_service": _BrokenPrimarySessionService(),
+            "in_memory_session_service": InMemorySessionService(),
+            "runner": _RecordingRunner(primary_runs, "primary"),
+            "in_memory_runner": _RecordingRunner(in_memory_runs, "in_memory"),
+        },
+        set_up=lambda: None,
+    )
+    fallback_sess = resilient_adk_create_session(
+        fake_app_fallback, user_id="user_202", max_attempts=2, base_delay=0.01
+    )
+    assert fallback_sess.id in fake_app_fallback._tmpl_attrs["fallback_in_memory_sessions"]
+
+    # Subsequent stream_query with that fallback session_id routes to in_memory_runner
+    events_fb = list(
+        resilient_adk_stream_query(
+            fake_app_fallback,
+            message="Finalize booking",
+            user_id="user_202",
+            session_id=fallback_sess.id,
+        )
+    )
+    assert len(events_fb) == 1
+    assert "handled-by-in_memory" in str(events_fb[0])
+    assert in_memory_runs == [fallback_sess.id]
+    assert primary_runs == []
+
+    # 3. Stateless stream_query (session_id=None) uses in_memory_runner directly without hitting broken primary
+    events_stateless = list(
+        resilient_adk_stream_query(
+            fake_app_fallback,
+            message="Stateless booking handoff",
+            user_id="user_303",
+            session_id=None,
+        )
+    )
+    assert len(events_stateless) == 1
+    assert len(in_memory_runs) == 2
+    assert primary_runs == []
+
+
+
 
 
 

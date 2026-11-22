@@ -142,8 +142,15 @@ def create_agent(
         credentials=credentials,
     )
 
+    from typing import Any, Dict, Optional
+
     agent_obj = agent_module.agent
     _setup_auth_transport = testbed_utils.telemetry.setup_authenticated_transport
+    _resilient_async_create_session = (
+        testbed_utils.telemetry.resilient_adk_async_create_session
+    )
+    _resilient_create_session = testbed_utils.telemetry.resilient_adk_create_session
+    _resilient_stream_query = testbed_utils.telemetry.resilient_adk_stream_query
 
     class MyAdkApp(AdkApp):
         def clone(self):
@@ -167,10 +174,44 @@ def create_agent(
             return super().project_id()
 
         def set_up(self):
-            # Ensure OIDC transport hooks and google-adk 2.0.0a3 numeric app_name
-            # validation patch are installed when AdkApp initializes on Agent Engine.
+            # Ensure OIDC transport hooks, ADK numeric app_name patch, and OTel
+            # cross-context detach guard are installed on Agent Engine startup.
             _setup_auth_transport()
             return super().set_up()
+
+        async def async_create_session(
+            self,
+            *,
+            user_id: str,
+            session_id: Optional[str] = None,
+            state: Optional[Dict[str, Any]] = None,
+            **kwargs,
+        ):
+            """Creates a new session."""
+            return await _resilient_async_create_session(
+                self,
+                user_id=user_id,
+                session_id=session_id,
+                state=state,
+                **kwargs,
+            )
+
+        def create_session(
+            self,
+            *,
+            user_id: str,
+            session_id: Optional[str] = None,
+            state: Optional[Dict[str, Any]] = None,
+            **kwargs,
+        ):
+            """Creates a new session."""
+            return _resilient_create_session(
+                self,
+                user_id=user_id,
+                session_id=session_id,
+                state=state,
+                **kwargs,
+            )
 
         def query(self, *args, **kwargs):
             response_text = ""
@@ -186,7 +227,7 @@ def create_agent(
             return response_text
 
         def stream_query(self, *args, **kwargs):
-            yield from super().stream_query(*args, **kwargs)
+            yield from _resilient_stream_query(self, *args, **kwargs)
 
     adk_app = MyAdkApp(agent=agent_obj)
 
